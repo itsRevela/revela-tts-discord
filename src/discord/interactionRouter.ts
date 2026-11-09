@@ -1,9 +1,14 @@
-import { MessageFlags, type ChatInputCommandInteraction, type Interaction } from 'discord.js';
+import {
+  MessageFlags,
+  type ChatInputCommandInteraction,
+  type Interaction,
+  type MessageComponentInteraction,
+} from 'discord.js';
 import type { CommandContext, SlashCommand } from '../commands/types.ts';
 
 const FAILURE_MESSAGE = 'Something went wrong running that command. Try again in a moment.';
 
-async function reportFailure(interaction: ChatInputCommandInteraction): Promise<void> {
+async function reportFailure(interaction: ChatInputCommandInteraction | MessageComponentInteraction): Promise<void> {
   if (interaction.deferred || interaction.replied) {
     await interaction.editReply({ content: FAILURE_MESSAGE, allowedMentions: { parse: [] } });
   } else {
@@ -24,6 +29,20 @@ export function createInteractionHandler(
         await command?.autocomplete?.(interaction, context);
       } catch (error: unknown) {
         logger.warn('Autocomplete failed', { error, command: interaction.commandName });
+      }
+      return;
+    }
+    if (interaction.isMessageComponent()) {
+      const name = interaction.customId.split(':')[0] ?? '';
+      const command = commands.get(name);
+      if (!command?.component) return;
+      try {
+        await command.component(interaction, context);
+      } catch (error: unknown) {
+        logger.error('Component interaction failed', { error, customId: interaction.customId });
+        await reportFailure(interaction).catch((replyError: unknown) => {
+          logger.warn('Could not report the component failure to the user', { error: replyError });
+        });
       }
       return;
     }

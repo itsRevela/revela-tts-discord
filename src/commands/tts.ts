@@ -4,18 +4,22 @@ import {
   type ChatInputCommandInteraction,
   type Guild,
   type GuildMember,
+  type Message,
   type VoiceBasedChannel,
 } from 'discord.js';
 import { buildMentionResolver } from '../discord/mentionResolver.ts';
-import { scheduleReplyDeletion } from '../discord/replyCleanup.ts';
+import { createLoadingReply } from '../loading/loadingReply.ts';
+import type { SpeechStatus } from '../playback/speechStatus.ts';
+import { createReplyCleanup, scheduleReplyDeletion, type DeletableReply, type ReplyCleanup } from '../discord/replyCleanup.ts';
 import type { GuildSpeaker, GuildSpeakers } from '../playback/guildSpeakers.ts';
 import { sanitizeForSpeech } from '../text/sanitize.ts';
 import { speakableName } from '../text/speakableName.ts';
-import { resolveVoice } from '../tts/voices.ts';
 import { replyEphemeral, voiceChannelProblem } from './shared.ts';
 import type { CommandContext, SlashCommand } from './types.ts';
 
 const QUEUE_FULL = 'The speech queue is full. Give it a moment to catch up.';
+/** A problem reply has no speech to wait for, so it stays this long to be read. */
+export const PROBLEM_REPLY_MS = 15_000;
 
 type Preflight = { readonly problem: string } | { readonly channel: VoiceBasedChannel };
 
@@ -34,13 +38,19 @@ function preflight(member: GuildMember, guild: Guild, speakers: GuildSpeakers): 
   return problem ? { problem } : { channel };
 }
 
-/** Joins (if needed) and queues the speech. Returns the text for the public reply. */
+interface SpeechCallbacks {
+  readonly onDone: () => void;
+  readonly onStatus: (status: SpeechStatus) => void;
+}
+
+/** Joins (if needed) and queues the speech. Returns a problem to report instead, if any. */
 async function speakInChannel(
   interaction: ChatInputCommandInteraction<'cached'>,
   channel: VoiceBasedChannel,
-  message: { readonly raw: string; readonly spoken: string },
+  spoken: string,
+  callbacks: SpeechCallbacks,
   context: CommandContext,
-): Promise<string> {
+): Promise<string | undefined> {
   let speaker: GuildSpeaker;
   try {
     speaker = await context.speakers.connect(channel);
@@ -56,24 +66,35 @@ async function speakInChannel(
     authorId: user.id,
     authorName: speakableName(member.displayName) ?? speakableName(user.username),
     announceName: preferences.announceName,
-    text: message.spoken,
-    sid: resolveVoice(preferences.voice).sid,
+    text: spoken,
+    model: preferences.model,
+    voiceId: preferences.voice,
+    ...callbacks,
   });
-  return result === 'full' ? QUEUE_FULL : `🔊 ${message.raw}`;
+  return result === 'full' ? QUEUE_FULL : undefined;
 }
 
-/** Posts the public reply (pinging no one) and schedules its deletion. */
-async function publishReply(
+/** Replaces the reply's text, pinging no one. */
+const editReplyText = (interaction: ChatInputCommandInteraction<'cached'>, content: string): Promise<Message<true>> =>
+  interaction.editReply({ content, allowedMentions: { parse: [] } });
+
+/**
+ * Arranges a posted reply's deletion. With delete-after-playback on, a speech
+ * reply goes once its message is done (played, skipped, or dropped when the
+ * bot leaves or disconnects), and a problem reply after PROBLEM_REPLY_MS. The
+ * optional timer applies to both.
+ */
+function arrangeDeletion(
   interaction: ChatInputCommandInteraction<'cached'>,
-  content: string,
+  message: Message<true>,
+  cleanup: ReplyCleanup | undefined,
   context: CommandContext,
-): Promise<void> {
-  const reply = await interaction.editReply({ content, allowedMentions: { parse: [] } });
-  scheduleReplyDeletion(
-    { deleteViaInteraction: () => interaction.deleteReply(), deleteViaChannel: () => reply.delete() },
-    context.config.replyDeleteMs,
-    context.logger,
-  );
+): void {
+  const reply: DeletableReply = { deleteViaInteraction: () => interaction.deleteReply(), deleteViaChannel: () => message.delete() };
+  scheduleReplyDeletion(reply, context.config.replyDeleteMs, context.logger);
+  if (!context.config.replyDeleteAfterPlayback) return;
+  if (cleanup) cleanup.posted(reply);
+  else scheduleReplyDeletion(reply, PROBLEM_REPLY_MS, context.logger);
 }
 
 async function execute(interaction: ChatInputCommandInteraction, context: CommandContext): Promise<void> {
@@ -92,9 +113,27 @@ async function execute(interaction: ChatInputCommandInteraction, context: Comman
     await replyEphemeral(interaction, "There's nothing in that message I can read aloud.");
     return;
   }
+  // Discord shows "thinking…" until the first edit; slow models then get a progress line.
   await interaction.deferReply();
-  const content = await speakInChannel(interaction, check.channel, { raw, spoken }, context);
-  await publishReply(interaction, content, context);
+  const cleanup = createReplyCleanup(context.logger);
+  const loading = createLoadingReply({
+    content: `🔊 ${raw}`,
+    edit: (content) => editReplyText(interaction, content),
+    onPosted: (message) => arrangeDeletion(interaction, message, cleanup, context),
+    logger: context.logger,
+  });
+  const callbacks: SpeechCallbacks = {
+    onStatus: (status) => loading.update(status),
+    onDone: () => {
+      loading.finish();
+      cleanup.done();
+    },
+  };
+  const problem = await speakInChannel(interaction, check.channel, spoken, callbacks, context);
+  if (problem) {
+    loading.cancel();
+    arrangeDeletion(interaction, await editReplyText(interaction, problem), undefined, context);
+  }
 }
 
 export function createTtsCommand(maxTextLength: number): SlashCommand {

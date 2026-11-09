@@ -4,9 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { silentLogger } from '../../src/logging/logger.ts';
+import { preferenceDefaultsFor } from '../../src/preferences/catalogDefaults.ts';
 import { loadPreferenceStore } from '../../src/preferences/preferenceStore.ts';
+import { testCatalog } from '../helpers/catalog.ts';
 
-const DEFAULTS = { voice: 'af_heart', announceName: true };
+const DEFAULTS = preferenceDefaultsFor(testCatalog(), undefined);
+const FRESH = { model: 'pocket', voice: 'alba', announceName: true };
 const ALEX = '300000000000000001';
 
 describe('loadPreferenceStore', () => {
@@ -26,19 +29,19 @@ describe('loadPreferenceStore', () => {
 
   it('starts with defaults when there is no file yet', async () => {
     const store = await load();
-    assert.deepEqual(store.get(ALEX), DEFAULTS);
+    assert.deepEqual(store.get(ALEX), FRESH);
   });
 
   it('saves updates and loads them on the next start', async () => {
     const store = await load();
-    const updated = await store.update(ALEX, { voice: 'bm_george' });
+    const updated = await store.update(ALEX, { model: 'kokoro', voices: { kokoro: 'bm_george' } });
     await store.update(ALEX, { announceName: false });
-    assert.deepEqual(updated, { voice: 'bm_george', announceName: true });
+    assert.deepEqual(updated, { model: 'kokoro', voice: 'bm_george', announceName: true });
 
     const reloaded = await load();
-    assert.deepEqual(reloaded.get(ALEX), { voice: 'bm_george', announceName: false });
+    assert.deepEqual(reloaded.get(ALEX), { model: 'kokoro', voice: 'bm_george', announceName: false });
     const saved: unknown = JSON.parse(await readFile(filePath, 'utf8'));
-    assert.deepEqual(saved, { [ALEX]: { voice: 'bm_george', announceName: false } });
+    assert.deepEqual(saved, { [ALEX]: { model: 'kokoro', voices: { kokoro: 'bm_george' }, announceName: false } });
   });
 
   it('keeps an unreadable file as a backup and starts fresh', async () => {
@@ -47,7 +50,7 @@ describe('loadPreferenceStore', () => {
     await writeFile(filePath, '{ not json', 'utf8');
 
     const recovered = await load();
-    assert.deepEqual(recovered.get(ALEX), DEFAULTS);
+    assert.deepEqual(recovered.get(ALEX), FRESH);
     const files = await readdir(path.dirname(filePath));
     assert.ok(files.some((name) => name.startsWith('preferences.json.corrupt-')));
   });
@@ -62,11 +65,11 @@ describe('loadPreferenceStore', () => {
   it('keeps every update when several land at once', async () => {
     const store = await load();
     await Promise.all([
-      store.update(ALEX, { voice: 'am_adam' }),
+      store.update(ALEX, { voices: { pocket: 'custom:rekp' } }),
       store.update('300000000000000002', { announceName: false }),
     ]);
     const reloaded = await load();
-    assert.equal(reloaded.get(ALEX).voice, 'am_adam');
+    assert.equal(reloaded.get(ALEX).voice, 'custom:rekp');
     assert.equal(reloaded.get('300000000000000002').announceName, false);
   });
 });

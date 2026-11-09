@@ -2,22 +2,19 @@ import type {
   AutocompleteInteraction,
   ChatInputCommandInteraction,
   GuildMember,
+  MessageComponentInteraction,
   VoiceBasedChannel,
 } from 'discord.js';
 import { ChannelType } from 'discord.js';
 import type { CommandContext } from '../../src/commands/types.ts';
 import { parseConfig, type Config } from '../../src/config/config.ts';
 import { silentLogger } from '../../src/logging/logger.ts';
-import type { ClipPlayer } from '../../src/playback/speechQueue.ts';
+import type { SpeechPlayer } from '../../src/playback/speechQueue.ts';
 import type { GuildSpeaker, GuildSpeakers, SpeakInput, SpeakResult } from '../../src/playback/guildSpeakers.ts';
-import type { PreferenceStore } from '../../src/preferences/preferenceStore.ts';
-import {
-  resolvePreferences,
-  withPreference,
-  type PreferencePatch,
-  type StoredPreferences,
-} from '../../src/preferences/userPreferences.ts';
-import type { SynthesisRequest, TtsEngine } from '../../src/tts/types.ts';
+import type { ModelSynthesisRequest, Synthesizer } from '../../src/tts/synthesizer.ts';
+import { memoryPreferences, testCatalog } from './catalog.ts';
+
+export { memoryPreferences, testCatalog } from './catalog.ts';
 
 export const GUILD_ID = '100000000000000001';
 export const CHANNEL_ID = '200000000000000001';
@@ -31,39 +28,49 @@ export function testConfig(overrides: Record<string, string> = {}): Config {
   return parseConfig({ DISCORD_TOKEN: 'test-token', ...overrides });
 }
 
-/** Engine that emits one 24 kHz chunk per "|"-separated part of the text. */
-export interface FakeEngine extends TtsEngine {
-  readonly requests: SynthesisRequest[];
+/** Synthesizer that emits one 24 kHz chunk per "|"-separated part of the text. */
+export interface FakeSynthesizer extends Synthesizer {
+  readonly requests: ModelSynthesisRequest[];
   failNext: boolean;
   gate: Promise<void> | undefined;
 }
 
-export function fakeEngine(): FakeEngine {
-  const engine: FakeEngine = {
+export function fakeSynthesizer(): FakeSynthesizer {
+  const synthesizer: FakeSynthesizer = {
     requests: [],
     failNext: false,
     gate: undefined,
     synthesize: async (request) => {
-      engine.requests.push(request);
-      if (engine.failNext) {
-        engine.failNext = false;
+      synthesizer.requests.push(request);
+      if (synthesizer.failNext) {
+        synthesizer.failNext = false;
         throw new Error('synthesis exploded');
       }
       const parts = request.text.split('|');
       for (const [index, part] of parts.entries()) {
         if (request.signal?.aborted) return;
-        if (index > 0 && engine.gate) await engine.gate;
+        if (index > 0 && synthesizer.gate) await synthesizer.gate;
         if (request.signal?.aborted) return;
         request.onChunk({ samples: new Float32Array(part.length * 10).fill(0.5), sampleRate: 24_000 });
       }
     },
   };
-  return engine;
+  return synthesizer;
 }
 
-/** Player whose clips finish only when `finishCurrent` is called (or immediately when auto). */
-export interface FakePlayer extends ClipPlayer {
-  readonly played: Buffer[];
+/** One message handed to the player: its PCM so far and whether the stream ended. */
+export interface PlayedMessage {
+  readonly chunks: Buffer[];
+  ended: boolean;
+}
+
+export function bytesOf(message: PlayedMessage | undefined): number {
+  return message?.chunks.reduce((total, chunk) => total + chunk.length, 0) ?? 0;
+}
+
+/** Auto mode finishes each message when its stream ends; manual mode waits for finishCurrent() or stop(). */
+export interface FakePlayer extends SpeechPlayer {
+  readonly played: PlayedMessage[];
   stops: number;
   finishCurrent(): void;
 }
@@ -74,10 +81,15 @@ export function fakePlayer(auto = true): FakePlayer {
     played: [],
     stops: 0,
     play: (pcm) => {
-      player.played.push(pcm);
-      if (auto) return Promise.resolve();
+      const message: PlayedMessage = { chunks: [], ended: false };
+      player.played.push(message);
       return new Promise<void>((resolve) => {
         pending = resolve;
+        pcm.on('data', (chunk: Buffer) => message.chunks.push(chunk));
+        pcm.on('end', () => {
+          message.ended = true;
+          if (auto) player.finishCurrent();
+        });
       });
     },
     stop: () => {
@@ -91,19 +103,6 @@ export function fakePlayer(auto = true): FakePlayer {
     },
   };
   return player;
-}
-
-export function memoryPreferences(initial: StoredPreferences = {}): PreferenceStore & { stored: () => StoredPreferences } {
-  let state = initial;
-  const defaults = { voice: 'af_heart', announceName: true };
-  return {
-    stored: () => state,
-    get: (userId) => resolvePreferences(state, userId, defaults),
-    update: async (userId: string, patch: PreferencePatch) => {
-      state = withPreference(state, userId, patch);
-      return resolvePreferences(state, userId, defaults);
-    },
-  };
 }
 
 export interface FakeSpeaker extends GuildSpeaker {
@@ -169,6 +168,7 @@ export function commandContext(parts: Partial<CommandContext> = {}): CommandCont
     config: testConfig(),
     speakers: fakeSpeakers(),
     preferences: memoryPreferences(),
+    catalog: testCatalog(),
     logger: silentLogger,
     ...parts,
   };
@@ -249,6 +249,7 @@ export function fakeInteraction(options: FakeInteractionOptions = {}): FakeChatI
     },
     inCachedGuild: () => options.inGuild ?? true,
     isAutocomplete: () => false,
+    isMessageComponent: () => false,
     isChatInputCommand: () => true,
     options: {
       getString: (name: string) => options.strings?.[name] ?? null,
@@ -278,13 +279,39 @@ export function fakeAutocomplete(commandName: string, focused: string): Autocomp
   return {
     responses,
     commandName,
+    user: { id: USER_ID },
     isAutocomplete: () => true,
+    isMessageComponent: () => false,
     isChatInputCommand: () => false,
     options: { getFocused: () => focused },
     respond: async (choices: unknown) => {
       responses.push(choices);
     },
   } as unknown as AutocompleteInteraction & { responses: unknown[] };
+}
+
+export type FakeComponentInteraction = MessageComponentInteraction & { readonly updates: unknown[] };
+
+/** A picker click: a select menu when `values` is given, otherwise a button. */
+export function fakeComponent(customId: string, values?: string[]): FakeComponentInteraction {
+  const updates: unknown[] = [];
+  return {
+    updates,
+    customId,
+    values,
+    user: { id: USER_ID },
+    deferred: false,
+    replied: false,
+    isAutocomplete: () => false,
+    isMessageComponent: () => true,
+    isChatInputCommand: () => false,
+    isStringSelectMenu: () => values !== undefined,
+    isButton: () => values === undefined,
+    update: async (payload: unknown) => {
+      updates.push(payload);
+    },
+    reply: async () => undefined,
+  } as unknown as FakeComponentInteraction;
 }
 
 /** Text content of a reply payload, whether a string or an options object. */

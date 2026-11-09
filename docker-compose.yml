@@ -7,5 +7,51 @@ services:
     env_file: .env
     # Unraid's nobody:users, so files in appdata stay manageable from shares.
     user: "99:100"
+    # Phonon and NeuTTS load in the background, so the bot starts without them.
+    depends_on:
+      - phonon
+      - neutts
     volumes:
       - ${DATA_PATH:-/mnt/user/appdata/revela-tts-discord/data}:/data
+
+  # Gradium's Phonon server (Rust, CPU only). The bot reaches it at
+  # http://phonon:8880 on the compose network; no port is published because
+  # the server has no authentication. The 40m models are gated: accept their
+  # terms on Hugging Face and set HF_TOKEN in .env.
+  phonon:
+    image: ghcr.io/gradium-ai/ptts-openai-server:0.6.0
+    container_name: revela-tts-phonon
+    restart: unless-stopped
+    environment:
+      PTTS_MODEL: ${PHONON_MODEL:-hf://gradium/phonon-40m-en}
+      PTTS_LANG: en
+      PTTS_QUANT: ${PHONON_QUANT:-q8}
+      PTTS_MAX_CONCURRENT_REQUESTS: "1"
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      # Model downloads survive container updates.
+      - phonon-cache:/home/phonon/.cache/huggingface
+
+  # Neuphonic NeuTTS Air behind this repository's small Python server
+  # (services/neutts), which speaks the same speech API as Phonon. The model
+  # files are gated: accept their terms on Hugging Face and set HF_TOKEN.
+  # Custom voices: it prepares every recording in data/voices/*.wav into
+  # data/voices/neutts/ (clip, transcript, codes) on startup.
+  neutts:
+    build: ./services/neutts
+    image: revela-tts-neutts:latest
+    container_name: revela-tts-neutts
+    restart: unless-stopped
+    user: "99:100"
+    environment:
+      NEUTTS_BACKBONE: ${NEUTTS_BACKBONE:-neuphonic/neutts-air-q8-gguf}
+      # Perth watermarking of NeuTTS output: off by the owner's choice.
+      NEUTTS_WATERMARK: ${NEUTTS_WATERMARK:-false}
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - neutts-cache:/home/neutts/.cache/huggingface
+      - ${DATA_PATH:-/mnt/user/appdata/revela-tts-discord/data}/voices:/voices
+
+volumes:
+  phonon-cache:
+  neutts-cache:

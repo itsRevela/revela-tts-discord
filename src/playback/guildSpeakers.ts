@@ -1,7 +1,8 @@
 import type { VoiceBasedChannel } from 'discord.js';
 import type { Logger } from '../logging/logger.ts';
-import type { TtsEngine } from '../tts/types.ts';
+import type { Synthesizer } from '../tts/synthesizer.ts';
 import { createGuildSpeaker, type GuildSpeaker, type GuildSpeakerHandle } from './guildSpeaker.ts';
+import { ProductionRates } from './playbackBuffer.ts';
 import { openVoiceSession, type OpenVoiceSession, type VoiceSession } from './voiceSession.ts';
 
 export type { GuildSpeaker, SpeakInput, SpeakResult } from './guildSpeaker.ts';
@@ -16,12 +17,14 @@ export interface GuildSpeakers {
 }
 
 export interface GuildSpeakersOptions {
-  readonly engine: TtsEngine;
+  readonly synthesizer: Synthesizer;
   readonly logger: Logger;
   readonly maxQueueLength: number;
   /** Leave after this long without new messages; 0 never leaves. */
   readonly idleTimeoutMs: number;
   readonly openSession?: OpenVoiceSession;
+  /** Learned model speeds and voice paces, shared by every server. */
+  readonly rates?: ProductionRates;
 }
 
 interface Entry extends GuildSpeakerHandle {
@@ -35,6 +38,8 @@ function without<T>(map: ReadonlyMap<string, T>, key: string): ReadonlyMap<strin
 export function createGuildSpeakers(options: GuildSpeakersOptions): GuildSpeakers {
   const { logger } = options;
   const openSession = options.openSession ?? openVoiceSession;
+  // Shared across servers: a model's speed does not depend on the guild.
+  const rates = options.rates ?? new ProductionRates();
   let entries: ReadonlyMap<string, Entry> = new Map();
   let pending: ReadonlyMap<string, Promise<Entry>> = new Map();
 
@@ -56,7 +61,7 @@ export function createGuildSpeakers(options: GuildSpeakersOptions): GuildSpeaker
       },
     });
     if (closedEarly) throw new Error(`Voice connection in guild ${guildId} closed while joining`);
-    entry = { ...createGuildSpeaker({ ...options, session }), session };
+    entry = { ...createGuildSpeaker({ ...options, session, rates }), session };
     return entry;
   }
 

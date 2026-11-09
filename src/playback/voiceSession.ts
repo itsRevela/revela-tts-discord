@@ -1,4 +1,3 @@
-import { Readable } from 'node:stream';
 import {
   AudioPlayerStatus,
   NoSubscriberBehavior,
@@ -13,17 +12,24 @@ import {
 } from '@discordjs/voice';
 import type { VoiceBasedChannel } from 'discord.js';
 import type { Logger } from '../logging/logger.ts';
-import type { ClipPlayer } from './speechQueue.ts';
+import type { SpeechPlayer } from './speechQueue.ts';
 
 const READY_TIMEOUT_MS = 20_000;
 const RECONNECT_GRACE_MS = 5_000;
+/**
+ * How long a message may wait for more audio mid-stream (sent as silence)
+ * before the player gives up. Synthesis normally stays ahead, but another
+ * server's message can hold the CPU for a few seconds.
+ */
+const MAX_STREAM_STALL_MS = 15_000;
+const FRAME_MS = 20;
 
 /** A live voice connection in one guild plus the player that speaks into it. */
 export interface VoiceSession {
   readonly guildId: string;
   /** Current channel; follows the bot if someone moves it. */
   readonly channelId: string;
-  readonly player: ClipPlayer;
+  readonly player: SpeechPlayer;
   destroy(): void;
 }
 
@@ -36,7 +42,7 @@ export interface OpenVoiceSessionOptions {
 
 export type OpenVoiceSession = (options: OpenVoiceSessionOptions) => Promise<VoiceSession>;
 
-function createClipPlayer(player: AudioPlayer, logger: Logger): ClipPlayer {
+function createSpeechPlayer(player: AudioPlayer, logger: Logger): SpeechPlayer {
   return {
     play: (pcm) =>
       new Promise<void>((resolve) => {
@@ -51,7 +57,7 @@ function createClipPlayer(player: AudioPlayer, logger: Logger): ClipPlayer {
         };
         player.on(AudioPlayerStatus.Idle, finish);
         player.on('error', onError);
-        player.play(createAudioResource(Readable.from([pcm]), { inputType: StreamType.Raw }));
+        player.play(createAudioResource(pcm, { inputType: StreamType.Raw }));
       }),
     stop: () => {
       player.stop(true);
@@ -80,7 +86,9 @@ export const openVoiceSession: OpenVoiceSession = async ({ channel, onClosed, lo
     selfDeaf: true,
     selfMute: false,
   });
-  const audioPlayer = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
+  const audioPlayer = createAudioPlayer({
+    behaviors: { noSubscriber: NoSubscriberBehavior.Pause, maxMissedFrames: MAX_STREAM_STALL_MS / FRAME_MS },
+  });
   connection.on('error', (error) => logger.warn('Voice connection error', { error, guildId: channel.guild.id }));
   connection.once(VoiceConnectionStatus.Destroyed, () => {
     audioPlayer.stop(true);
@@ -101,7 +109,7 @@ export const openVoiceSession: OpenVoiceSession = async ({ channel, onClosed, lo
     get channelId() {
       return connection.joinConfig.channelId ?? channel.id;
     },
-    player: createClipPlayer(audioPlayer, logger),
+    player: createSpeechPlayer(audioPlayer, logger),
     destroy: () => {
       if (connection.state.status !== VoiceConnectionStatus.Destroyed) connection.destroy();
     },

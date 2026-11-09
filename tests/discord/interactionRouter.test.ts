@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import type { Interaction } from 'discord.js';
 import type { SlashCommand } from '../../src/commands/types.ts';
 import { createInteractionHandler } from '../../src/discord/interactionRouter.ts';
-import { commandContext, contentOf, fakeAutocomplete, fakeInteraction, isEphemeral } from '../helpers/fakes.ts';
+import { commandContext, contentOf, fakeAutocomplete, fakeComponent, fakeInteraction, isEphemeral } from '../helpers/fakes.ts';
 
 function command(execute: SlashCommand['execute'], autocomplete?: SlashCommand['autocomplete']): SlashCommand {
   const data = { name: 'tts', description: 'test' };
@@ -50,5 +50,20 @@ describe('createInteractionHandler', () => {
     );
     await handle(fakeAutocomplete('tts', 'he') as unknown as Interaction);
     assert.deepEqual(seen, ['he']);
+  });
+});
+
+describe('component routing', () => {
+  it('sends picker clicks to the command named in the custom id', async () => {
+    const seen: string[] = [];
+    const voice: SlashCommand = {
+      data: { name: 'voice', description: 'test' },
+      execute: async () => undefined,
+      component: async (interaction) => { seen.push(interaction.customId); },
+    };
+    const handle = createInteractionHandler(new Map([['voice', voice]]), commandContext());
+    await handle(fakeComponent('voice:next:all:0') as unknown as Interaction);
+    await handle(fakeComponent('other:next:all:0') as unknown as Interaction);
+    assert.deepEqual(seen, ['voice:next:all:0']);
   });
 });

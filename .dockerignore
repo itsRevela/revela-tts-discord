@@ -5,3 +5,7 @@ data
 documentation
 tests
 *.md
+*.wav
+*.flac
+*.mp3
+*.ogg

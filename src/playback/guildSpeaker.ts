@@ -1,6 +1,8 @@
 import type { Logger } from '../logging/logger.ts';
 import { composeUtterance, shouldAnnounce } from '../text/utterance.ts';
-import type { TtsEngine } from '../tts/types.ts';
+import type { Synthesizer } from '../tts/synthesizer.ts';
+import type { ProductionRates } from './playbackBuffer.ts';
+import type { SpeechStatus } from './speechStatus.ts';
 import { createIdleTimer } from './idleTimer.ts';
 import { SpeechQueue } from './speechQueue.ts';
 import type { VoiceSession } from './voiceSession.ts';
@@ -13,7 +15,12 @@ export interface SpeakInput {
   readonly announceName: boolean;
   /** Message text already cleaned for speech. */
   readonly text: string;
-  readonly sid: number;
+  readonly model: string;
+  readonly voiceId: string;
+  /** Called once when this message is finished (played, skipped, or dropped). */
+  readonly onDone?: () => void;
+  /** Progress updates until playback starts. */
+  readonly onStatus?: (status: SpeechStatus) => void;
 }
 
 export type SpeakResult = 'queued' | 'full';
@@ -28,7 +35,8 @@ export interface GuildSpeaker {
 
 export interface GuildSpeakerOptions {
   readonly session: VoiceSession;
-  readonly engine: TtsEngine;
+  readonly synthesizer: Synthesizer;
+  readonly rates?: ProductionRates;
   readonly logger: Logger;
   readonly maxQueueLength: number;
   /** Leave after this long without new messages; 0 never leaves. */
@@ -43,8 +51,8 @@ export interface GuildSpeakerHandle {
 
 /** Wires a voice session to a speech queue, the "<name> says" rule and the idle timeout. */
 export function createGuildSpeaker(options: GuildSpeakerOptions): GuildSpeakerHandle {
-  const { session, engine, logger, maxQueueLength, idleTimeoutMs } = options;
-  const queue = new SpeechQueue({ engine, player: session.player, maxLength: maxQueueLength, logger });
+  const { session, synthesizer, rates, logger, maxQueueLength, idleTimeoutMs } = options;
+  const queue = new SpeechQueue({ synthesizer, player: session.player, maxLength: maxQueueLength, logger, ...(rates ? { rates } : {}) });
   const idle = createIdleTimer(idleTimeoutMs, () => queue.size > 0, () => {
     logger.info('Leaving voice channel after inactivity', { guildId: session.guildId });
     session.destroy();
@@ -65,7 +73,14 @@ export function createGuildSpeaker(options: GuildSpeakerOptions): GuildSpeakerHa
         previousSpeakerId: lastSpeakerId,
       });
       const text = composeUtterance({ text: input.text, speakerName: input.authorName, announce });
-      if (!queue.enqueue({ text, sid: input.sid })) return 'full';
+      const request = {
+        text,
+        model: input.model,
+        voiceId: input.voiceId,
+        ...(input.onDone ? { onDone: input.onDone } : {}),
+        ...(input.onStatus ? { onStatus: input.onStatus } : {}),
+      };
+      if (!queue.enqueue(request)) return 'full';
       lastSpeakerId = input.authorId;
       idle.touch();
       return 'queued';

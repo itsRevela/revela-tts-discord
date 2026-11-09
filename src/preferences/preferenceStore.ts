@@ -7,6 +7,7 @@ import {
   parseStoredPreferences,
   resolvePreferences,
   withPreference,
+  type PreferenceDefaults,
   type PreferencePatch,
   type StoredPreferences,
   type UserPreferences,
@@ -19,7 +20,7 @@ export interface PreferenceStore {
 
 export interface PreferenceStoreOptions {
   readonly filePath: string;
-  readonly defaults: UserPreferences;
+  readonly defaults: PreferenceDefaults;
   readonly logger: Logger;
 }
 
