@@ -1,0 +1,11 @@
+services:
+  revela-tts:
+    build: .
+    image: revela-tts-discord:latest
+    container_name: revela-tts-discord
+    restart: unless-stopped
+    env_file: .env
+    # Unraid's nobody:users, so files in appdata stay manageable from shares.
+    user: "99:100"
+    volumes:
+      - ${DATA_PATH:-/mnt/user/appdata/revela-tts-discord/data}:/data

@@ -1,0 +1,31 @@
+{
+  "name": "revela-tts-discord",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted Discord text-to-speech bot using Kokoro-82M on CPU",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/main.ts",
+    "test": "node --test \"tests/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "smoke": "node scripts/smoke-tts.ts"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@discordjs/opus": "^0.11.0",
+    "@discordjs/voice": "^0.19.2",
+    "discord.js": "^14.28.1",
+    "sherpa-onnx-node": "1.13.8",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^7.0.2"
+  },
+  "allowScripts": {
+    "@discordjs/opus@0.11.0": true
+  }
+}
