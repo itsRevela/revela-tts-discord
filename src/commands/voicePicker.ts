@@ -58,8 +58,8 @@ function pageCount(entries: readonly VoiceEntry[]): number {
 }
 
 /** Where to open the picker: the filter and page holding the user's current voice. */
-export function initialPickerState(catalog: ModelCatalog, currentValue: string): PickerState {
-  const entries = voiceEntries(catalog);
+export function initialPickerState(catalog: ModelCatalog, currentValue: string, includeCustom = true): PickerState {
+  const entries = voiceEntries(catalog, includeCustom);
   const current = entries.find((entry) => entryValue(entry) === currentValue);
   if (!current) return { groupId: ALL_VOICES.id, page: 0 };
   const inGroup = entriesInGroup(entries, current.group.id);
@@ -111,8 +111,14 @@ function pageRow(state: PickerState, pages: number) {
  * Renders the private /voice picker: current voice, a filter menu, one page
  * of voices and Previous/Next buttons. Out-of-range pages are clamped.
  */
-export function renderVoicePicker(catalog: ModelCatalog, requested: PickerState, currentValue: string, notice?: string): PickerView {
-  const entries = voiceEntries(catalog);
+export function renderVoicePicker(
+  catalog: ModelCatalog,
+  requested: PickerState,
+  currentValue: string,
+  notice?: string,
+  includeCustom = true,
+): PickerView {
+  const entries = voiceEntries(catalog, includeCustom);
   const groups = voiceGroups(entries);
   const groupId = groups.some((group) => group.id === requested.groupId) ? requested.groupId : ALL_VOICES.id;
   const inGroup = entriesInGroup(entries, groupId);

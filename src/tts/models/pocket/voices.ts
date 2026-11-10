@@ -1,62 +1,75 @@
 /**
- * Kyutai's English Pocket TTS voice catalog (pocket-tts README). Pocket clones
- * a voice from a short reference recording; these are downloaded from
- * https://huggingface.co/kyutai/tts-voices at image build time
- * (scripts/fetch-pocket-voices.ts). Licences per that repository's README.
+ * Kyutai's English Pocket TTS voices, as offered by the Pocket server
+ * (services/pocket, Kyutai's pocket-tts), plus custom voices it cloned from
+ * recordings in data/voices/. Licences per the kyutai/tts-voices README.
  */
+import { customVoiceId } from '../../customVoiceIds.ts';
+import type { ServerVoiceList } from '../../speechServer/client.ts';
+import type { ServerVoice } from '../../speechServer/engine.ts';
 import type { Voice } from '../../types.ts';
 
 export type VoiceLicense = 'CC BY 4.0' | 'CC0' | 'CC BY-NC 4.0';
 
 export interface PocketVoice extends Voice {
-  readonly name: string;
-  /** Path inside the kyutai/tts-voices repository. */
-  readonly source: string;
   readonly license: VoiceLicense;
 }
 
+/** Kyutai's default voice, and what Pocket users get until they pick one; the server maps "default" to it. */
 export const DEFAULT_POCKET_VOICE_ID = 'alba';
-export const KYUTAI_VOICES_BASE_URL = 'https://huggingface.co/kyutai/tts-voices/resolve/main/';
-/** Reference recordings live in this subfolder of the Pocket model folder. */
-export const POCKET_VOICES_DIR = 'voices';
 
-const VOICE_TABLE: readonly (readonly [id: string, source: string, license: VoiceLicense])[] = [
-  ['alba', 'alba-mackenna/casual.wav', 'CC BY 4.0'],
-  ['anna', 'vctk/p228_023_enhanced.wav', 'CC BY 4.0'],
-  ['azelma', 'vctk/p303_023_enhanced.wav', 'CC BY 4.0'],
-  ['bill_boerst', 'voice-zero/bill_boerst.wav', 'CC0'],
-  ['caro_davy', 'voice-zero/caro_davy.wav', 'CC0'],
-  ['charles', 'vctk/p254_023_enhanced.wav', 'CC BY 4.0'],
-  ['cosette', 'expresso/ex04-ex02_confused_001_channel1_499s.wav', 'CC BY-NC 4.0'],
-  ['eponine', 'vctk/p262_023_enhanced.wav', 'CC BY 4.0'],
-  ['eve', 'vctk/p361_023_enhanced.wav', 'CC BY 4.0'],
-  ['fantine', 'vctk/p244_023_enhanced.wav', 'CC BY 4.0'],
-  ['george', 'vctk/p315_023_enhanced.wav', 'CC BY 4.0'],
-  ['jane', 'vctk/p339_023_enhanced.wav', 'CC BY 4.0'],
-  ['jean', 'ears/p010/freeform_speech_01_enhanced.wav', 'CC BY-NC 4.0'],
-  ['javert', 'voice-donations/Butter.wav', 'CC0'],
-  ['marius', 'voice-donations/Selfie.wav', 'CC0'],
-  ['mary', 'vctk/p333_023_enhanced.wav', 'CC BY 4.0'],
-  ['michael', 'vctk/p360_023_enhanced.wav', 'CC BY 4.0'],
-  ['paul', 'vctk/p259_023_enhanced.wav', 'CC BY 4.0'],
-  ['peter_yearsley', 'voice-zero/peter_yearsley.wav', 'CC0'],
-  ['stuart_bell', 'voice-zero/stuart_bell.wav', 'CC0'],
-  ['vera', 'vctk/p229_023_enhanced.wav', 'CC BY 4.0'],
+const VOICE_TABLE: readonly (readonly [id: string, license: VoiceLicense])[] = [
+  ['alba', 'CC BY 4.0'],
+  ['anna', 'CC BY 4.0'],
+  ['azelma', 'CC BY 4.0'],
+  ['bill_boerst', 'CC0'],
+  ['caro_davy', 'CC0'],
+  ['charles', 'CC BY 4.0'],
+  ['cosette', 'CC BY-NC 4.0'],
+  ['eponine', 'CC BY 4.0'],
+  ['eve', 'CC BY 4.0'],
+  ['fantine', 'CC BY 4.0'],
+  ['george', 'CC BY 4.0'],
+  ['jane', 'CC BY 4.0'],
+  ['jean', 'CC BY-NC 4.0'],
+  ['javert', 'CC0'],
+  ['marius', 'CC0'],
+  ['mary', 'CC BY 4.0'],
+  ['michael', 'CC BY 4.0'],
+  ['paul', 'CC BY 4.0'],
+  ['peter_yearsley', 'CC0'],
+  ['stuart_bell', 'CC0'],
+  ['vera', 'CC BY 4.0'],
 ];
 
-function toVoice([id, source, license]: readonly [string, string, VoiceLicense]): PocketVoice {
-  const name = id.split('_').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
-  const label = id === DEFAULT_POCKET_VOICE_ID ? `${name} (Kyutai's default)` : name;
-  return Object.freeze({ id, label, name, source, license });
+const titleCase = (id: string): string =>
+  id.split('_').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
+
+function toVoice([id, license]: readonly [string, VoiceLicense]): PocketVoice {
+  const label = id === DEFAULT_POCKET_VOICE_ID ? `${titleCase(id)} (Kyutai's default)` : titleCase(id);
+  return Object.freeze({ id, label, language: 'en', license });
 }
 
 /** Kyutai's default first, then alphabetical. */
 export const POCKET_VOICES: readonly PocketVoice[] = Object.freeze(VOICE_TABLE.map(toVoice));
 
-export function pocketVoiceFileName(voice: PocketVoice): string {
-  return `${voice.id}.wav`;
-}
-
-export function pocketVoiceUrl(voice: PocketVoice): string {
-  return `${KYUTAI_VOICES_BASE_URL}${voice.source}`;
+/**
+ * The server's voices in catalog order (anything new on the server follows,
+ * named from its id), then custom voices under the shared "custom:<slug>" ids.
+ */
+export function pocketVoices(list: ServerVoiceList): readonly ServerVoice[] {
+  const offered = new Set(list.voices.map((name) => name.toLowerCase()).filter((name) => name !== 'default'));
+  const known = POCKET_VOICES.filter((voice) => offered.has(voice.id)).map(({ license: _license, ...voice }) => ({
+    ...voice,
+    serverName: voice.id,
+  }));
+  const knownIds = new Set(known.map((voice) => voice.id));
+  const extra = [...offered]
+    .filter((name) => !knownIds.has(name))
+    .sort()
+    .map((name) => ({ id: name, serverName: name, label: titleCase(name), language: 'en' }));
+  const custom = list.custom.flatMap((name) => {
+    const id = customVoiceId(name);
+    return id ? [{ id, serverName: name, label: name, language: 'en', custom: true }] : [];
+  });
+  return [...known, ...extra, ...custom];
 }

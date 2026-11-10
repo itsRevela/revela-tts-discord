@@ -1,5 +1,63 @@
 # Changelog
 
+## 2026-11-10: Back to Phonon (Harper) as the default voice
+
+**What:** Reverted the Pocket (Azelma) default. `DEFAULT_MODEL` defaults to `phonon` again (Harper), and Pocket's starting voice is Alba again. On the server, each user's Pocket voice was restored from the pre-Azelma backup where the migration had set it to Azelma, and every user was set to `phonon:Harper` (backup kept).
+
+**Why:** Owner request: Harper as the default for current and future users.
+
+**Files:** `src/config/config.ts`, `src/tts/models/pocket/{voices,index}.ts`, `tests/config/config.test.ts`, `tests/tts/models/pocket/voices.test.ts`, `README.md`, `.env.example`.
+
+## 2026-11-10: Pocket (Azelma) is the default voice
+
+**What:** `DEFAULT_MODEL` now defaults to `pocket`, and Pocket's starting voice is Azelma (`POCKET_STARTING_VOICE`). Alba stays labelled as Kyutai's default, and the server still maps "default" to Alba. Until the Pocket server joins after a restart, Kokoro stands in. Existing users were switched to `pocket:azelma` on the server (`data/preferences.json`, backup kept), with their other per-model voices and settings kept.
+
+**Why:** Owner request: Pocket TTS with Azelma for all current and future users.
+
+**Files:** `src/config/config.ts`, `src/tts/models/pocket/{voices,index}.ts`, `tests/config/config.test.ts`, `tests/tts/models/pocket/voices.test.ts`, `README.md`, `.env.example`.
+
+## 2026-11-09: Pocket runs on Kyutai's own pocket-tts; Pocket above NeuTTS
+
+**What:**
+- Pocket moved from the sherpa-onnx export (January model) to Kyutai's official `pocket-tts` 4.0.1 with the `english_2026-10` model, in a new sidecar (`services/pocket`).
+  - It is a FastAPI server with the same streaming speech API as Phonon and NeuTTS, and the bot reaches it at `POCKET_URL`.
+  - It uses Kyutai's defaults: temperature 0.3, its own text preparation (capitalization, terminal punctuation, padding of short inputs), chunks of at most 50 tokens, per-chunk length bounds and end-of-speech margins.
+  - `/skip` stops generation through Kyutai's stop event.
+  - Custom voices are cloned from the original `data/voices/*.wav` (up to 30 s) and cached as voice states in the `pocket-cache` volume. Only the 4 most recent voices stay in RAM.
+  - Optional settings: `POCKET_TEMPERATURE`, `POCKET_SEED`, `POCKET_THREADS`.
+- Voice ids are unchanged (`alba`, `custom:rekp` and so on), so saved choices carry over.
+- Order: the model list and the `/voice` categories are now Phonon, Pocket, NeuTTS, Kokoro. Custom voices list Pocket versions first, then NeuTTS.
+- Removed: the sherpa Pocket engine, its config, reference-voice and custom-voice loaders, the Pocket stage of the bot Dockerfile, `scripts/fetch-pocket-voices.ts`, and the now-unused `customVoicesDir` model option. Kokoro remains the only sherpa-onnx model.
+
+**Why:** Tests on the sherpa export showed hallucinations that depended on the seed, clipped first words at every piece start (each piece restarted the model and decoder), and runaways to the 40 s cap on short padded text (sherpa ignores end-of-speech at frame 0). Kyutai's runtime passed the same three prompts cleanly for Alba and rekp, at about 3× faster than real time. The owner judged its quality above NeuTTS.
+
+**Files:** `services/pocket/{server,engine,voices}.py`, `services/pocket/Dockerfile`, `services/pocket/tests/*` (new); `src/tts/models/pocket/{index,engine,voices}.ts`, `src/tts/modelRegistry.ts`, `src/tts/voiceDirectory.ts`, `src/tts/{loadModels,types}.ts`, `src/main.ts`, `scripts/smoke-tts.ts`, `Dockerfile`, `docker-compose.yml`; tests for pocket voices, config, voice directory, voice selection and model loading; `README.md`, `.env.example`.
+
+## 2026-11-09: Custom voices behind /unlock
+
+**What:**
+- New `CUSTOM_VOICES_PASSWORD` setting. When it is set, custom voices need `/unlock password:<…>` once per user, remembered as `customVoicesUnlocked` in the preferences. Unset leaves custom voices open, as before.
+- `/unlock` replies privately and compares passwords in constant time over SHA-256 digests. It allows 5 wrong attempts per user per 15 minutes, and never logs the password or the guess.
+- While locked, custom voices are hidden from `/voice` (picker category, search and typed names) and `/customvoice`. A stored custom voice resolves to the model's default voice, so locked users can't keep speaking with one picked earlier.
+- Server: the password was installed into `app/.env` (root, mode 600) and isn't in the repo.
+
+**Why:** Owner request: per-user password gate for the custom voices.
+
+**Files:** `src/unlock/{password,attemptLimiter}.ts`, `src/commands/unlock.ts` (new); `src/preferences/{userPreferences,catalogDefaults}.ts`, `src/config/config.ts`, `src/main.ts`, `src/tts/voiceDirectory.ts`, `src/commands/{voice,voicePicker,customVoice,index}.ts`; `tests/unlock/unlock.test.ts`, `tests/commands/unlock.test.ts`, and updates to preference and voice tests and helpers; `README.md`, `.env.example`.
+
+## 2026-11-09: /autoread, and speech only for people in the bot's channel
+
+**What:**
+- New `/autoread add|remove [channel]`, `/autoread list` and `/autoread off`. Per user and per server (up to 10 channels: text, announcement, or voice-channel chat), the user's ordinary messages there are read aloud like `/tts`. They use the same voice and announce setting, are cut at a word to `MAX_TEXT_LENGTH`, and are never deleted. Messages that `/tts` would refuse are skipped quietly.
+- Progress for auto-read is a ⏳ reaction added after 1.5 s and removed when playback starts. A private progress line isn't possible on ordinary messages, since Discord only allows ephemeral replies to interactions.
+- Speech only plays for people in the bot's voice channel. When someone leaves or moves away, their queued messages are dropped and their current one is stopped (`SpeechQueue.dropAuthor`, from the voice-state watcher).
+- The client now requests the Guild Messages and Message Content intents. **Message Content must be enabled in the Developer Portal**, or login fails.
+- The `/tts` preflight and "speak for this member" logic moved to `src/speech/` so `/tts` and auto-read share it.
+
+**Why:** Owner requests: hands-free reading for users who opt in, and no speech from people who aren't listening in the channel.
+
+**Files:** `src/autoRead/{autoReadMessages,reactionProgress}.ts`, `src/commands/autoRead.ts`, `src/speech/{preflight,speakForMember}.ts`, `src/text/truncate.ts` (new); `src/commands/{tts,shared,index}.ts`, `src/preferences/{userPreferences,preferenceStore}.ts`, `src/playback/{speechQueue,guildSpeaker}.ts`, `src/discord/{client,voiceStateWatcher}.ts`, `src/main.ts`; tests under `tests/autoRead/`, `tests/commands/autoRead.test.ts`, `tests/text/truncate.test.ts`, and updates to the preference, queue, voice-state and fake helpers; `README.md`.
+
 ## 2026-11-09: /voice categories ordered by quality
 
 **What:** The model registry, and with it the default `TTS_MODELS`, is now ordered `phonon,neutts,pocket,kokoro`. The `/voice` filter therefore reads: All voices, Phonon, Phonon Characters, NeuTTS Air, Pocket TTS, Kokoro English, Kokoro Mandarin Chinese, Custom voices. "All voices" and the empty-query autocomplete mix follow the same order. Custom voices keep their own order (NeuTTS, then Pocket).

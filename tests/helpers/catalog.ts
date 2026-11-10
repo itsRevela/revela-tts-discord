@@ -1,6 +1,7 @@
 import { preferenceDefaultsFor } from '../../src/preferences/catalogDefaults.ts';
 import type { PreferenceStore } from '../../src/preferences/preferenceStore.ts';
 import {
+  autoReadChannelsOf,
   resolvePreferences,
   withPreference,
   type PreferencePatch,
@@ -46,12 +47,17 @@ export function testCatalog(defaultModelId = 'pocket'): ModelCatalog {
 
 export type MemoryPreferences = PreferenceStore & { stored: () => StoredPreferences };
 
-export function memoryPreferences(initial: StoredPreferences = {}, catalog: ModelCatalog = testCatalog()): MemoryPreferences {
+export function memoryPreferences(
+  initial: StoredPreferences = {},
+  catalog: ModelCatalog = testCatalog(),
+  customVoicesLocked = false,
+): MemoryPreferences {
   let state = initial;
-  const defaults = preferenceDefaultsFor(catalog, undefined);
+  const defaults = preferenceDefaultsFor(catalog, undefined, customVoicesLocked);
   return {
     stored: () => state,
     get: (userId) => resolvePreferences(state, userId, defaults),
+    autoReadChannels: (userId, guildId) => autoReadChannelsOf(state, userId, guildId),
     update: async (userId: string, patch: PreferencePatch) => {
       state = withPreference(state, userId, patch);
       return resolvePreferences(state, userId, defaults);

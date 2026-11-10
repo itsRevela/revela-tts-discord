@@ -24,7 +24,6 @@ const write = (line: string): void => {
 
 const [model] = await loadModels([definition], {
   modelsDir: process.env['MODELS_DIR'] ?? '/models',
-  customVoicesDir: path.join(process.env['DATA_DIR'] ?? '/data', 'voices'),
   numThreads: Number(process.env['TTS_THREADS'] ?? 4),
   speed: 1,
   env: process.env,

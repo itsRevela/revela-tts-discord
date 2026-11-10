@@ -1,12 +1,13 @@
 import type { TtsModel } from '../../types.ts';
-import { DEFAULT_POCKET_VOICE_ID, POCKET_VOICES } from './voices.ts';
+import { DEFAULT_POCKET_VOICE_ID } from './voices.ts';
 
 export const pocketModel: TtsModel = {
   id: 'pocket',
   name: 'Pocket TTS',
-  description: "Kyutai's voice-cloning model; 21 voices cloned from real recordings, a little slower",
-  voices: POCKET_VOICES,
+  description: "Kyutai's voice-cloning model, run by Kyutai's own pocket-tts; 21 English voices",
+  // The voice list comes from the server once it is reachable.
+  voices: [],
   defaultVoiceId: DEFAULT_POCKET_VOICE_ID,
-  // Loaded lazily so the voice catalog can be used without the native addon.
+  remote: true,
   load: async (options) => (await import('./engine.ts')).loadPocket(options),
 };

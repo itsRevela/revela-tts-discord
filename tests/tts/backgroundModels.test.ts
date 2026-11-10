@@ -6,7 +6,7 @@ import type { LoadedModel } from '../../src/tts/modelCatalog.ts';
 import type { TtsModel } from '../../src/tts/types.ts';
 
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-const options = { modelsDir: '/m', customVoicesDir: '/v', numThreads: 1, speed: 1, env: {}, logger: silentLogger };
+const options = { modelsDir: '/m', numThreads: 1, speed: 1, env: {}, logger: silentLogger };
 
 function flakyModel(failures: number): TtsModel & { attempts: number } {
   const model = {

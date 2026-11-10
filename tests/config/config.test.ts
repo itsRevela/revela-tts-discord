@@ -8,7 +8,7 @@ describe('parseConfig', () => {
     assert.equal(config.discordToken, 'abc');
     assert.equal(config.guildId, undefined);
     assert.equal(config.modelsDir, '/models');
-    assert.deepEqual(config.models, ['phonon', 'neutts', 'pocket', 'kokoro']);
+    assert.deepEqual(config.models, ['phonon', 'pocket', 'neutts', 'kokoro']);
     assert.equal(config.defaultModel, 'phonon');
     assert.equal(config.defaultVoice, undefined);
     assert.equal(config.ttsThreads, 4);
@@ -59,8 +59,8 @@ describe('parseConfig', () => {
         DISCORD_GUILD_ID: 'not-an-id',
         TTS_THREADS: '2.5',
         TTS_SPEED: '9',
-        DEFAULT_MODEL: 'pocket',
-        DEFAULT_VOICE: 'zf_xiaobei',
+        DEFAULT_MODEL: 'kokoro',
+        DEFAULT_VOICE: 'alba',
         LOG_LEVEL: 'loud',
       }),
       (error: unknown) => error instanceof ConfigError && error.problems.length === 5,
@@ -89,13 +89,14 @@ describe('parseConfig', () => {
       (error: unknown) => error instanceof ConfigError && error.problems.some((problem) => problem.includes('piper')),
     );
     assert.throws(
-      () => parseConfig({ DISCORD_TOKEN: 'abc', DEFAULT_MODEL: 'pocket', DEFAULT_VOICE: 'af_heart' }),
-      (error: unknown) => error instanceof ConfigError && error.problems.some((problem) => problem.includes('pocket')),
+      () => parseConfig({ DISCORD_TOKEN: 'abc', DEFAULT_MODEL: 'kokoro', DEFAULT_VOICE: 'alba' }),
+      (error: unknown) => error instanceof ConfigError && error.problems.some((problem) => problem.includes('kokoro')),
     );
-    assert.equal(parseConfig({ DISCORD_TOKEN: 'abc', DEFAULT_MODEL: 'pocket', DEFAULT_VOICE: 'marius' }).defaultVoice, 'marius');
+    assert.equal(parseConfig({ DISCORD_TOKEN: 'abc', DEFAULT_MODEL: 'kokoro', DEFAULT_VOICE: 'AF_Heart' }).defaultVoice, 'af_heart');
   });
 
   it('defaults to Phonon, or the first listed model without it, and defers server voices to load time', () => {
+    assert.equal(parseConfig({ DISCORD_TOKEN: 'abc', TTS_MODELS: 'kokoro,phonon' }).defaultModel, 'phonon');
     assert.equal(parseConfig({ DISCORD_TOKEN: 'abc', TTS_MODELS: 'kokoro,pocket' }).defaultModel, 'kokoro');
     // Phonon's voices come from its server, so any name is accepted here and checked once it is loaded.
     assert.equal(parseConfig({ DISCORD_TOKEN: 'abc', DEFAULT_VOICE: 'Zoey' }).defaultVoice, 'Zoey');

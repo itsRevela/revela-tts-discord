@@ -17,6 +17,7 @@ import { createModelCatalog, type ModelCatalog } from './tts/modelCatalog.ts';
 import { findModelDefinition } from './tts/modelRegistry.ts';
 import { createSynthesizer } from './tts/synthesizer.ts';
 import { settleReplyDeletions } from './discord/replyCleanup.ts';
+import { handleAutoReadMessage } from './autoRead/autoReadMessages.ts';
 import type { TtsModel } from './tts/types.ts';
 
 /** Docker allows 10 s between SIGTERM and SIGKILL. */
@@ -49,7 +50,6 @@ async function loadCatalog(config: Config, logger: Logger): Promise<ModelCatalog
     model.remote === true && (model.id !== config.defaultModel || hasLocal);
   const options = {
     modelsDir: config.modelsDir,
-    customVoicesDir: path.join(config.dataDir, 'voices'),
     numThreads: config.ttsThreads,
     speed: config.ttsSpeed,
     env: process.env,
@@ -71,7 +71,7 @@ async function start(config: Config, logger: Logger): Promise<void> {
   const catalog = await loadCatalog(config, logger);
   const preferences = await loadPreferenceStore({
     filePath: path.join(config.dataDir, 'preferences.json'),
-    defaults: preferenceDefaultsFor(catalog, config.defaultVoice),
+    defaults: preferenceDefaultsFor(catalog, config.defaultVoice, config.customVoicesPassword !== undefined),
     logger,
   });
   const speakers = createGuildSpeakers({
@@ -92,6 +92,12 @@ async function start(config: Config, logger: Logger): Promise<void> {
     });
   });
   client.on(Events.InteractionCreate, (interaction) => void handleInteraction(interaction));
+  const autoRead = { speakers, preferences, logger, maxTextLength: config.maxTextLength };
+  client.on(Events.MessageCreate, (message) => {
+    handleAutoReadMessage(message, autoRead).catch((error: unknown) => {
+      logger.error('Auto-read failed for a message', { error, guildId: message.guildId });
+    });
+  });
   client.on(Events.VoiceStateUpdate, (_previous, current) => handleVoiceStateUpdate(current, speakers, logger));
   client.on(Events.Error, (error) => logger.error('Discord client error', { error }));
 

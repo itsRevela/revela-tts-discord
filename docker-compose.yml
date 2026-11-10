@@ -7,9 +7,10 @@ services:
     env_file: .env
     # Unraid's nobody:users, so files in appdata stay manageable from shares.
     user: "99:100"
-    # Phonon and NeuTTS load in the background, so the bot starts without them.
+    # Phonon, Pocket and NeuTTS load in the background, so the bot starts without them.
     depends_on:
       - phonon
+      - pocket
       - neutts
     volumes:
       - ${DATA_PATH:-/mnt/user/appdata/revela-tts-discord/data}:/data
@@ -31,6 +32,26 @@ services:
     volumes:
       # Model downloads survive container updates.
       - phonon-cache:/home/phonon/.cache/huggingface
+
+  # Kyutai's Pocket TTS (the official pocket-tts package) behind this
+  # repository's small Python server (services/pocket), speaking the same
+  # speech API. Voice cloning needs the gated kyutai/pocket-tts weights: accept
+  # their terms on Hugging Face and set HF_TOKEN. Custom voices: every
+  # data/voices/*.wav is cloned once on startup and cached.
+  pocket:
+    build: ./services/pocket
+    image: revela-tts-pocket:latest
+    container_name: revela-tts-pocket
+    restart: unless-stopped
+    user: "99:100"
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      # Optional: POCKET_TEMPERATURE (Kyutai's default 0.3), POCKET_SEED (random per message), POCKET_THREADS.
+      POCKET_TEMPERATURE: ${POCKET_TEMPERATURE:-}
+      POCKET_SEED: ${POCKET_SEED:-}
+    volumes:
+      - pocket-cache:/home/pocket/.cache
+      - ${DATA_PATH:-/mnt/user/appdata/revela-tts-discord/data}/voices:/voices:ro
 
   # Neuphonic NeuTTS Air behind this repository's small Python server
   # (services/neutts), which speaks the same speech API as Phonon. The model
@@ -54,4 +75,5 @@ services:
 
 volumes:
   phonon-cache:
+  pocket-cache:
   neutts-cache:

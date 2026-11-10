@@ -27,7 +27,7 @@ describe('voiceEntries', () => {
     assert.ok(entries.slice(-2).every((entry) => entry.group.id === 'custom'));
   });
 
-  it('lists NeuTTS custom voices first, then Pocket TTS, whatever the model order', () => {
+  it('lists Pocket TTS custom voices first, then NeuTTS, whatever the model order', () => {
     const catalog = createModelCatalog(
       [
         loadedModel('pocket', 'Pocket TTS', CUSTOM_VOICES, 'custom:rekp'),
@@ -37,10 +37,10 @@ describe('voiceEntries', () => {
       'pocket',
     );
     assert.deepEqual(entriesInGroup(voiceEntries(catalog), 'custom').map(entryValue), [
-      'neutts:custom:rekp',
-      'neutts:custom:tony_balogna',
       'pocket:custom:rekp',
       'pocket:custom:tony_balogna',
+      'neutts:custom:rekp',
+      'neutts:custom:tony_balogna',
     ]);
   });
 
@@ -59,8 +59,8 @@ describe('voiceEntries', () => {
       'All voices',
       'Phonon',
       'Phonon Characters',
-      'NeuTTS Air',
       'Pocket TTS',
+      'NeuTTS Air',
       'Kokoro English',
       'Kokoro Mandarin Chinese',
       'Custom voices',

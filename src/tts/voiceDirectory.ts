@@ -19,7 +19,7 @@ export const ALL_VOICES: VoiceGroup = { id: 'all', label: 'All voices' };
 export const CUSTOM_VOICES: VoiceGroup = { id: 'custom', label: 'Custom voices' };
 
 /** Custom voices of these models are listed first, in this order; other models' follow in configured order. */
-export const CUSTOM_VOICE_MODEL_ORDER: readonly string[] = ['neutts', 'pocket'];
+export const CUSTOM_VOICE_MODEL_ORDER: readonly string[] = ['pocket', 'neutts'];
 
 const LANGUAGE_NAMES: Readonly<Record<string, string>> = { en: 'English', zh: 'Mandarin Chinese' };
 
@@ -58,7 +58,7 @@ function customModelRank(modelId: string): number {
  * appearance, voices best first within each), then the custom voices
  * (models in CUSTOM_VOICE_MODEL_ORDER).
  */
-export function voiceEntries(catalog: ModelCatalog): readonly VoiceEntry[] {
+export function voiceEntries(catalog: ModelCatalog, includeCustom = true): readonly VoiceEntry[] {
   const builtIn = catalog.models.flatMap((model) => {
     const voices = model.voices.filter((voice) => !voice.custom);
     const multilingual = new Set(voices.map((voice) => voice.language ?? '')).size > 1;
@@ -67,6 +67,7 @@ export function voiceEntries(catalog: ModelCatalog): readonly VoiceEntry[] {
     return groupOrder.flatMap((groupId) => entries.filter((entry) => entry.group.id === groupId));
   });
   const customModels = [...catalog.models].sort((a, b) => customModelRank(a.id) - customModelRank(b.id));
+  if (!includeCustom) return builtIn;
   const custom = customModels.flatMap((model) =>
     model.voices.filter((voice) => voice.custom).map((voice) => ({ model, voice, group: CUSTOM_VOICES })),
   );

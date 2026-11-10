@@ -31,8 +31,14 @@ export function findCustomEntry(entries: readonly VoiceEntry[], requested: strin
   return matches.find((entry) => entry.model.id === currentModel) ?? matches[0];
 }
 
+export const LOCKED = 'Custom voices are locked. Use /unlock with the password to use them.';
+
 async function execute(interaction: ChatInputCommandInteraction, context: CommandContext): Promise<void> {
   const userId = interaction.user.id;
+  if (!context.preferences.get(userId).customVoices) {
+    await replyEphemeral(interaction, LOCKED);
+    return;
+  }
   const entries = customEntries(context);
   const requested = interaction.options.getString('name');
   if (requested === null) {
@@ -50,6 +56,10 @@ async function execute(interaction: ChatInputCommandInteraction, context: Comman
 }
 
 async function autocomplete(interaction: AutocompleteInteraction, context: CommandContext): Promise<void> {
+  if (!context.preferences.get(interaction.user.id).customVoices) {
+    await interaction.respond([]);
+    return;
+  }
   const needle = interaction.options.getFocused().trim().toLowerCase();
   const choices = customEntries(context)
     .filter((entry) => !needle || entryLabel(entry).toLowerCase().includes(needle))

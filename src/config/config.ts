@@ -21,6 +21,8 @@ export interface Config {
   readonly idleTimeoutMs: number;
   /** Delete each /tts reply once its message has played, been skipped, or been dropped (default on). */
   readonly replyDeleteAfterPlayback: boolean;
+  /** When set, custom voices need /unlock with this password. Never logged. */
+  readonly customVoicesPassword: string | undefined;
   /** Also delete /tts replies after this long; 0 turns the timer off (the default). */
   readonly replyDeleteMs: number;
   readonly dataDir: string;
@@ -147,6 +149,7 @@ export function parseConfig(env: Env): Config {
     maxQueueLength: readNumber(env, 'MAX_QUEUE_LENGTH', { fallback: 10, min: 1, max: 100, integer: true }, problems),
     idleTimeoutMs: readNumber(env, 'IDLE_TIMEOUT_MINUTES', { fallback: 15, min: 0, max: 1440, integer: false }, problems) * 60_000,
     replyDeleteAfterPlayback: readBoolean(env, 'REPLY_DELETE_AFTER_PLAYBACK', true, problems),
+    customVoicesPassword: readText(env, 'CUSTOM_VOICES_PASSWORD'),
     replyDeleteMs: readNumber(env, 'REPLY_DELETE_MINUTES', { fallback: 0, min: 0, max: 1440, integer: false }, problems) * 60_000,
     dataDir: readText(env, 'DATA_DIR') ?? '/data',
     logLevel: logLevel ?? 'info',

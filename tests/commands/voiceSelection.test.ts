@@ -38,21 +38,21 @@ describe('/voice', () => {
     const preferences = memoryPreferences();
     const interaction = fakeInteraction({ commandName: 'voice', strings: { name: 'kokoro:bm_george' } });
     await voiceCommand.execute(interaction, commandContext({ preferences }));
-    assert.deepEqual(preferences.get(USER_ID), { model: 'kokoro', voice: 'bm_george', announceName: true });
+    assert.deepEqual(preferences.get(USER_ID), { model: 'kokoro', voice: 'bm_george', announceName: true, customVoices: true });
     assert.equal(contentOf(interaction.replies[0]), 'Your /tts messages will now use George (British male) · grade C · Kokoro.');
   });
 
   it('accepts a bare voice id typed by hand', async () => {
     const preferences = onKokoro();
     await voiceCommand.execute(fakeInteraction({ commandName: 'voice', strings: { name: 'marius' } }), commandContext({ preferences }));
-    assert.deepEqual(preferences.get(USER_ID), { model: 'pocket', voice: 'marius', announceName: true });
+    assert.deepEqual(preferences.get(USER_ID), { model: 'pocket', voice: 'marius', announceName: true, customVoices: true });
   });
 
   it('accepts custom voices too and rejects unknown names', async () => {
     const custom = memoryPreferences();
     const pick = fakeInteraction({ commandName: 'voice', strings: { name: 'pocket:custom:rekp' } });
     await voiceCommand.execute(pick, commandContext({ preferences: custom }));
-    assert.deepEqual(custom.get(USER_ID), { model: 'pocket', voice: 'custom:rekp', announceName: true });
+    assert.deepEqual(custom.get(USER_ID), { model: 'pocket', voice: 'custom:rekp', announceName: true, customVoices: true });
     assert.equal(contentOf(pick.replies[0]), 'Your /tts messages will now use rekp (custom) · Pocket TTS.');
 
     const preferences = memoryPreferences();
@@ -96,7 +96,7 @@ describe('/voice picker', () => {
     const preferences = memoryPreferences();
     const interaction = fakeComponent('voice:pick:kokoro-zh:0', ['kokoro:zf_xiaoxiao']);
     await voiceCommand.component?.(interaction, commandContext({ preferences }));
-    assert.deepEqual(preferences.get(USER_ID), { model: 'kokoro', voice: 'zf_xiaoxiao', announceName: true });
+    assert.deepEqual(preferences.get(USER_ID), { model: 'kokoro', voice: 'zf_xiaoxiao', announceName: true, customVoices: true });
     const view = interaction.updates[0] as View;
     assert.match(view.content, /✅ Your \/tts messages will now use Xiaoxiao \(Chinese female\) · grade D · Kokoro/);
     assert.equal(view.components[1]?.components[0]?.options?.find((option) => option.default)?.value, 'kokoro:zf_xiaoxiao');
@@ -108,7 +108,7 @@ describe('/customvoice', () => {
     const preferences = onKokoro();
     const interaction = fakeInteraction({ commandName: 'customvoice', strings: { name: 'custom:tony_balogna' } });
     await customVoiceCommand.execute(interaction, commandContext({ preferences }));
-    assert.deepEqual(preferences.get(USER_ID), { model: 'pocket', voice: 'custom:tony_balogna', announceName: true });
+    assert.deepEqual(preferences.get(USER_ID), { model: 'pocket', voice: 'custom:tony_balogna', announceName: true, customVoices: true });
     assert.equal(contentOf(interaction.replies[0]), 'Your /tts messages will now use the custom voice Tony Balogna (Pocket TTS).');
   });
 
@@ -152,14 +152,14 @@ describe('custom voices in two models', () => {
   );
   const entries = entriesInGroup(voiceEntries(catalog), CUSTOM_GROUP.id);
 
-  it('lists each version under Custom voices, NeuTTS first', () => {
-    assert.deepEqual(entries.map(entryValue), ['neutts:custom:rekp', 'pocket:custom:rekp', 'pocket:custom:tony_balogna']);
+  it('lists each version under Custom voices, Pocket first', () => {
+    assert.deepEqual(entries.map(entryValue), ['pocket:custom:rekp', 'pocket:custom:tony_balogna', 'neutts:custom:rekp']);
   });
 
   it('prefers the current model\'s version for a bare name, and honours an exact pick', () => {
     assert.equal(findCustomEntry(entries, 'rekp', 'neutts')?.model.id, 'neutts');
     assert.equal(findCustomEntry(entries, 'custom:rekp', 'pocket')?.model.id, 'pocket');
-    assert.equal(findCustomEntry(entries, 'rekp', 'kokoro')?.model.id, 'neutts', 'otherwise the first listed');
+    assert.equal(findCustomEntry(entries, 'rekp', 'kokoro')?.model.id, 'pocket', 'otherwise the first listed');
     assert.equal(findCustomEntry(entries, 'neutts:custom:rekp', 'pocket')?.model.id, 'neutts');
     assert.equal(findCustomEntry(entries, 'Tony Balogna', 'neutts')?.model.id, 'pocket');
     assert.equal(findCustomEntry(entries, 'nobody', 'pocket'), undefined);
@@ -169,7 +169,7 @@ describe('custom voices in two models', () => {
     const preferences = memoryPreferences({}, catalog);
     const interaction = fakeInteraction({ commandName: 'customvoice', strings: { name: 'neutts:custom:rekp' } });
     await customVoiceCommand.execute(interaction, commandContext({ preferences, catalog }));
-    assert.deepEqual(preferences.get(USER_ID), { model: 'neutts', voice: 'custom:rekp', announceName: true });
+    assert.deepEqual(preferences.get(USER_ID), { model: 'neutts', voice: 'custom:rekp', announceName: true, customVoices: true });
     assert.equal(contentOf(interaction.replies[0]), 'Your /tts messages will now use the custom voice rekp (NeuTTS Air).');
   });
 });

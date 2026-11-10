@@ -39,6 +39,14 @@ describe('handleVoiceStateUpdate', () => {
     assert.deepEqual(speakers.disconnected, [GUILD_ID]);
   });
 
+  it('drops the speech of anyone who is not in the bot\'s channel', () => {
+    const speaker = fakeSpeaker();
+    const speakers = fakeSpeakers(speaker);
+    handleVoiceStateUpdate(voiceState(USER_ID, '200000000000000009', [{ bot: true }, { bot: false }]), speakers, silentLogger);
+    handleVoiceStateUpdate(voiceState('300000000000000002', CHANNEL_ID, [{ bot: true }, { bot: false }]), speakers, silentLogger);
+    assert.deepEqual(speaker.droppedAuthors, [USER_ID], 'only the one who moved away');
+  });
+
   it('ignores guilds where the bot is not speaking', () => {
     const speakers = fakeSpeakers();
     handleVoiceStateUpdate(voiceState(USER_ID, null, []), speakers, silentLogger);

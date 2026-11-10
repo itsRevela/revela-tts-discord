@@ -31,6 +31,8 @@ export interface GuildSpeaker {
   readonly isFull: boolean;
   speak(input: SpeakInput): SpeakResult;
   skip(): boolean;
+  /** Drops (and stops) everything this person queued. Returns how many messages were dropped. */
+  dropAuthor(authorId: string): number;
 }
 
 export interface GuildSpeakerOptions {
@@ -77,6 +79,7 @@ export function createGuildSpeaker(options: GuildSpeakerOptions): GuildSpeakerHa
         text,
         model: input.model,
         voiceId: input.voiceId,
+        authorId: input.authorId,
         ...(input.onDone ? { onDone: input.onDone } : {}),
         ...(input.onStatus ? { onStatus: input.onStatus } : {}),
       };
@@ -86,6 +89,7 @@ export function createGuildSpeaker(options: GuildSpeakerOptions): GuildSpeakerHa
       return 'queued';
     },
     skip: () => queue.skip(),
+    dropAuthor: (authorId) => queue.dropAuthor(authorId),
   };
 
   idle.touch();

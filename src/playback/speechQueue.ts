@@ -25,6 +25,8 @@ export interface SpeechRequest {
   readonly text: string;
   readonly model: string;
   readonly voiceId: string;
+  /** Who asked for it, so their messages can be dropped when they leave the channel. */
+  readonly authorId?: string;
   /** Called once when the message leaves the queue: played, skipped, failed, or dropped. */
   readonly onDone?: () => void;
   /** Called as the message moves through the queue, ending with "playing" when playback starts. */
@@ -118,6 +120,16 @@ export class SpeechQueue {
     this.#remove(head);
     this.#options.player.stop();
     return true;
+  }
+
+  /** Drops every message from one author, stopping it if it is playing. Returns how many were dropped. */
+  dropAuthor(authorId: string): number {
+    const theirs = this.#utterances.filter((utterance) => utterance.request.authorId === authorId);
+    const head = this.#utterances[0];
+    const playingTheirs = head !== undefined && theirs.includes(head) && head.sink !== undefined;
+    for (const utterance of theirs) this.#remove(utterance);
+    if (playingTheirs) this.#options.player.stop();
+    return theirs.length;
   }
 
   /** Drops everything and refuses new messages. */

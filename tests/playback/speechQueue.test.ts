@@ -172,6 +172,33 @@ describe('SpeechQueue', () => {
     queue.close();
   });
 
+  it('drops one author\'s messages when they leave, stopping theirs if it is playing', async () => {
+    const done: string[] = [];
+    const from = (authorId: string, text: string): SpeechRequest => ({ ...say(text), authorId, onDone: () => done.push(text) });
+    const synthesizer = fakeSynthesizer();
+    const gate = deferred();
+    synthesizer.gate = gate.promise;
+    const player = fakePlayer(false);
+    const queue = new SpeechQueue({ synthesizer, player, maxLength: 5, logger: silentLogger, rates: fastRates() });
+    queue.enqueue(from('leaver', 'playing|now'));
+    queue.enqueue(from('stayer', 'kept'));
+    queue.enqueue(from('leaver', 'queued'));
+    await settle();
+    assert.equal(player.played.length, 1);
+
+    assert.equal(queue.dropAuthor('leaver'), 2);
+    assert.equal(player.stops, 1);
+    assert.deepEqual(done, ['playing|now', 'queued']);
+    assert.equal(queue.size, 1);
+    assert.equal(queue.dropAuthor('nobody'), 0);
+    assert.equal(player.stops, 1, 'nothing else stopped');
+    synthesizer.gate = undefined;
+    gate.resolve();
+    await settle();
+    assert.equal(bytesOf(player.played.at(-1)), bytesFor('kept'));
+    queue.close();
+  });
+
   it('drops everything and refuses new messages once closed', async () => {
     const player = fakePlayer(false);
     const queue = new SpeechQueue({ synthesizer: fakeSynthesizer(), player, maxLength: 5, logger: silentLogger, rates: fastRates() });

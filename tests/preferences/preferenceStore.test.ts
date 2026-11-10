@@ -9,7 +9,7 @@ import { loadPreferenceStore } from '../../src/preferences/preferenceStore.ts';
 import { testCatalog } from '../helpers/catalog.ts';
 
 const DEFAULTS = preferenceDefaultsFor(testCatalog(), undefined);
-const FRESH = { model: 'pocket', voice: 'alba', announceName: true };
+const FRESH = { model: 'pocket', voice: 'alba', announceName: true, customVoices: true };
 const ALEX = '300000000000000001';
 
 describe('loadPreferenceStore', () => {
@@ -36,10 +36,10 @@ describe('loadPreferenceStore', () => {
     const store = await load();
     const updated = await store.update(ALEX, { model: 'kokoro', voices: { kokoro: 'bm_george' } });
     await store.update(ALEX, { announceName: false });
-    assert.deepEqual(updated, { model: 'kokoro', voice: 'bm_george', announceName: true });
+    assert.deepEqual(updated, { model: 'kokoro', voice: 'bm_george', announceName: true, customVoices: true });
 
     const reloaded = await load();
-    assert.deepEqual(reloaded.get(ALEX), { model: 'kokoro', voice: 'bm_george', announceName: false });
+    assert.deepEqual(reloaded.get(ALEX), { model: 'kokoro', voice: 'bm_george', announceName: false, customVoices: true });
     const saved: unknown = JSON.parse(await readFile(filePath, 'utf8'));
     assert.deepEqual(saved, { [ALEX]: { model: 'kokoro', voices: { kokoro: 'bm_george' }, announceName: false } });
   });

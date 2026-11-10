@@ -6,8 +6,6 @@ import type { TtsEngine, TtsModel } from './types.ts';
 export interface LoadModelsOptions {
   /** Each model loads from <modelsDir>/<model id>. */
   readonly modelsDir: string;
-  /** Each model looks for recordings to clone in <customVoicesDir>/<model id>. */
-  readonly customVoicesDir: string;
   readonly numThreads: number;
   readonly speed: number;
   readonly env: Readonly<Record<string, string | undefined>>;
@@ -22,7 +20,7 @@ export interface LoadModelsOptions {
  * unless it is required.
  */
 export async function loadModels(models: readonly TtsModel[], options: LoadModelsOptions): Promise<readonly LoadedModel[]> {
-  const { modelsDir, customVoicesDir, numThreads, speed, env, required, logger } = options;
+  const { modelsDir, numThreads, speed, env, required, logger } = options;
   const loaded: LoadedModel[] = [];
   for (const model of models) {
     const started = performance.now();
@@ -30,7 +28,6 @@ export async function loadModels(models: readonly TtsModel[], options: LoadModel
     try {
       engine = await model.load({
         modelDir: path.join(modelsDir, model.id),
-        customVoicesDir: path.join(customVoicesDir, model.id),
         numThreads,
         speed,
         env,

@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { Logger } from '../logging/logger.ts';
 import { serialize } from '../util/serialize.ts';
 import {
+  autoReadChannelsOf,
   parseStoredPreferences,
   resolvePreferences,
   withPreference,
@@ -15,6 +16,8 @@ import {
 
 export interface PreferenceStore {
   get(userId: string): UserPreferences;
+  /** The channels in a server whose messages from this user are read aloud. */
+  autoReadChannels(userId: string, guildId: string): readonly string[];
   update(userId: string, patch: PreferencePatch): Promise<UserPreferences>;
 }
 
@@ -75,6 +78,7 @@ export async function loadPreferenceStore(options: PreferenceStoreOptions): Prom
 
   return {
     get: (userId) => resolvePreferences(state, userId, defaults),
+    autoReadChannels: (userId, guildId) => autoReadChannelsOf(state, userId, guildId),
     update: async (userId, patch) => {
       const previous = state;
       const next = withPreference(previous, userId, patch);

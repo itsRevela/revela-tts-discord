@@ -40,8 +40,6 @@ export interface TtsEngine {
 export interface ModelLoadOptions {
   /** This model's folder, e.g. /models/kokoro. */
   readonly modelDir: string;
-  /** Recordings to clone, for models that can (e.g. /data/voices/pocket). */
-  readonly customVoicesDir: string;
   /** Environment, for model-specific settings such as a server address. Each model validates its own. */
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly numThreads: number;

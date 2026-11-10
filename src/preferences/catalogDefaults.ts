@@ -6,7 +6,11 @@ import type { PreferenceDefaults } from './userPreferences.ts';
  * or voices that are gone (disabled model, deleted custom recording) fall back
  * to the defaults instead of failing.
  */
-export function preferenceDefaultsFor(catalog: ModelCatalog, defaultVoice: string | undefined): PreferenceDefaults {
+export function preferenceDefaultsFor(
+  catalog: ModelCatalog,
+  defaultVoice: string | undefined,
+  customVoicesLocked = false,
+): PreferenceDefaults {
   const modelDefaultVoice = (model: string): string => {
     const loaded = catalog.findModel(model);
     if (!loaded) return '';
@@ -15,8 +19,11 @@ export function preferenceDefaultsFor(catalog: ModelCatalog, defaultVoice: strin
   };
   return {
     announceName: true,
+    customVoicesLocked,
     resolveModel: (requested) => (requested && catalog.findModel(requested) ? requested : catalog.defaultModelId),
-    resolveVoice: (model, requested) =>
-      requested && catalog.findVoice(model, requested) ? requested : modelDefaultVoice(model),
+    resolveVoice: (model, requested, allowCustom) => {
+      const voice = requested ? catalog.findVoice(model, requested) : undefined;
+      return voice && (allowCustom || !voice.custom) ? voice.id : modelDefaultVoice(model);
+    },
   };
 }

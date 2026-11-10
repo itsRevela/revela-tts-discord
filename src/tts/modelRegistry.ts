@@ -9,7 +9,7 @@ import type { TtsModel } from './types.ts';
  * index.ts exporting a TtsModel, list it here, and add its files to the image.
  */
 /** Also the default TTS_MODELS order, which is the order /voice lists models in: highest quality first. */
-export const MODELS: readonly TtsModel[] = [phononModel, neuttsModel, pocketModel, kokoroModel];
+export const MODELS: readonly TtsModel[] = [phononModel, pocketModel, neuttsModel, kokoroModel];
 
 export const MODEL_IDS: readonly string[] = MODELS.map((model) => model.id);
 

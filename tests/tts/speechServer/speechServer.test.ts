@@ -160,7 +160,7 @@ describe('speech server client and engine', () => {
   it('loads as a model whose voices come from the server, falling back to default', async () => {
     const engine = await loadSpeechServerModel(
       { name: 'Phonon', settings: PHONON_SETTINGS, fallbackVoice: 'default', describeVoices: phononVoices },
-      { modelDir: '', customVoicesDir: '', numThreads: 1, speed: 1, env: { PHONON_URL: url }, logger: silentLogger },
+      { modelDir: '', numThreads: 1, speed: 1, env: { PHONON_URL: url }, logger: silentLogger },
     );
     assert.deepEqual(engine.voices.map((voice) => voice.id), ['default', 'Zoey', 'Azgorath']);
     await engine.synthesize({ text: 'hi', voiceId: 'retired-voice', onChunk: () => undefined });
@@ -170,7 +170,7 @@ describe('speech server client and engine', () => {
   it('sends a custom voice to the server by its own name', async () => {
     const engine = await loadSpeechServerModel(
       { name: 'NeuTTS', settings: { ...PHONON_SETTINGS, urlVariable: 'NEUTTS_URL' }, fallbackVoice: 'jo', describeVoices: neuttsVoices },
-      { modelDir: '', customVoicesDir: '', numThreads: 1, speed: 1, env: { NEUTTS_URL: url }, logger: silentLogger },
+      { modelDir: '', numThreads: 1, speed: 1, env: { NEUTTS_URL: url }, logger: silentLogger },
     );
     assert.ok(engine.voices.some((voice) => voice.id === 'custom:tony_balogna' && voice.custom));
     assert.ok(engine.voices.every((voice) => !('serverName' in voice)));

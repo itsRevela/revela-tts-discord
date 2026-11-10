@@ -107,6 +107,7 @@ export function fakePlayer(auto = true): FakePlayer {
 
 export interface FakeSpeaker extends GuildSpeaker {
   readonly spoken: SpeakInput[];
+  readonly droppedAuthors: string[];
   channelId: string;
   isFull: boolean;
   speakResult: SpeakResult;
@@ -116,6 +117,7 @@ export interface FakeSpeaker extends GuildSpeaker {
 export function fakeSpeaker(channelId = CHANNEL_ID): FakeSpeaker {
   const speaker: FakeSpeaker = {
     spoken: [],
+    droppedAuthors: [],
     channelId,
     isFull: false,
     speakResult: 'queued',
@@ -123,6 +125,10 @@ export function fakeSpeaker(channelId = CHANNEL_ID): FakeSpeaker {
     speak: (input) => {
       speaker.spoken.push(input);
       return speaker.speakResult;
+    },
+    dropAuthor: (authorId) => {
+      speaker.droppedAuthors.push(authorId);
+      return 0;
     },
     skip: () => {
       speaker.skipped += 1;
@@ -194,13 +200,18 @@ export function fakeVoiceChannel(options: ChannelOptions = {}): VoiceBasedChanne
 
 export interface FakeMemberOptions {
   displayName?: string;
+  userId?: string;
+  username?: string;
   channel?: VoiceBasedChannel | null;
   canMoveMembers?: boolean;
 }
 
 export function fakeMember(options: FakeMemberOptions = {}): GuildMember {
   const channel = options.channel === undefined ? fakeVoiceChannel() : options.channel;
+  const user = { id: options.userId ?? USER_ID, username: options.username ?? 'alex_user', bot: false };
   return {
+    id: user.id,
+    user,
     displayName: options.displayName ?? 'Alex',
     voice: { channel, channelId: channel?.id ?? null },
     permissions: { has: () => options.canMoveMembers ?? false },
@@ -219,6 +230,11 @@ export interface FakeInteractionOptions {
   strings?: Record<string, string | null>;
   booleans?: Record<string, boolean | null>;
   username?: string;
+  subcommand?: string;
+  /** Channel options by name. */
+  channels?: Record<string, unknown>;
+  /** The channel the command was used in. */
+  channel?: unknown;
 }
 
 export type FakeChatInteraction = ChatInputCommandInteraction & {
@@ -251,9 +267,12 @@ export function fakeInteraction(options: FakeInteractionOptions = {}): FakeChatI
     isAutocomplete: () => false,
     isMessageComponent: () => false,
     isChatInputCommand: () => true,
+    channel: options.channel ?? null,
     options: {
       getString: (name: string) => options.strings?.[name] ?? null,
       getBoolean: (name: string) => options.booleans?.[name] ?? null,
+      getSubcommand: () => options.subcommand ?? '',
+      getChannel: (name: string) => options.channels?.[name] ?? null,
     },
     reply: async (payload: unknown) => {
       replies.push({ kind: 'reply', payload });
