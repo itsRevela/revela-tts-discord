@@ -5,6 +5,8 @@ the part of the OpenAI speech API the bot uses (the same shape as Phonon and Neu
   GET  /v1/audio/voices   {"voices": [...], "custom": [...], "aliases": {}}
   POST /v1/audio/speech   {"input", "voice", "response_format": "pcm"}
                           -> headerless 16-bit mono PCM at 24 kHz, streamed
+  POST   /v1/user-voices/{id}/prepare   checks and clones an uploaded clip
+  DELETE /v1/user-voices/{id}           forgets an uploaded voice (idempotent)
 
 Kyutai's library prepares the text (capitalization, punctuation, padding of
 short inputs), splits it into chunks of at most 50 tokens and bounds each
@@ -13,6 +15,9 @@ time; closing the response stops it.
 
 Custom voices: every <Name>.wav in POCKET_CUSTOM_SOURCES_DIR is cloned once and
 cached as a voice state, re-cloned when the recording changes.
+
+Uploaded voices ("user:<id>", see user_voices.py) are not listed; the bot keeps
+their catalog. They are cloned when prepared or first used.
 """
 
 from __future__ import annotations
@@ -28,9 +33,11 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 import numpy as np
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
+import user_voices
+from user_voices import CLONED_SECONDS, MAX_SECONDS, MIN_SECONDS
 from voices import Voice, discover_voices, voice_names
 
 LANGUAGE = os.environ.get("POCKET_LANGUAGE", "english")
@@ -55,6 +62,9 @@ class SpeechEngine(Protocol):
     def stream(self, voice: Voice, text: str, stop: threading.Event) -> Iterator[np.ndarray]:
         """Yields float audio chunks in [-1, 1] at 24 kHz until done or `stop` is set."""
 
+    def forget(self, voice: Voice) -> None:
+        """Drops a voice's clone from memory and disk."""
+
 
 @dataclass
 class ServerState:
@@ -67,8 +77,11 @@ generation_lock = asyncio.Lock()
 
 
 def load_engine() -> SpeechEngine:
-    from engine import KyutaiEngine  # deferred: pulls in torch and the model
+    from engine import STATE_CACHE_DIR, KyutaiEngine  # deferred: pulls in torch and the model
 
+    for stale in user_voices.stale_cached_states(STATE_CACHE_DIR, user_voices.USER_VOICES_DIR):
+        stale.unlink(missing_ok=True)
+        log.info("removed the cached clone of a deleted upload: %s", stale.name)
     return KyutaiEngine(language=LANGUAGE, temperature=TEMPERATURE, seed=SEED, threads=THREADS)
 
 
@@ -157,6 +170,60 @@ async def generate(engine: SpeechEngine, text: str, voice: Voice) -> AsyncIterat
             await asyncio.to_thread(worker.join)
 
 
+def resolve_voice(name: str) -> Voice | None:
+    """A built-in or custom voice by name, or an uploaded one by "user:<id>"."""
+    voice_id = user_voices.parse_user_voice(name)
+    if voice_id is not None:
+        return user_voices.user_voice(voice_id)
+    return state.voices.get(name)
+
+
+@app.post("/v1/user-voices/{voice_id}/prepare", response_model=None)
+async def prepare_user_voice(voice_id: str) -> JSONResponse:
+    """Checks an uploaded clip and clones it, never overlapping a generation."""
+    if not user_voices.is_user_voice_id(voice_id):
+        return error(400, "invalid voice id", "invalid_id")
+    if state.engine is None:
+        return error(503, "the model is still loading", "not_ready")
+    voice = user_voices.user_voice(voice_id)
+    if voice is None or voice.source is None:
+        return error(404, "no uploaded clip for this voice", "not_found")
+    try:
+        info = await asyncio.to_thread(user_voices.probe_audio, voice.source)
+    except Exception:  # noqa: BLE001 - any decoding failure means an unusable file
+        return error(400, "the clip is not audio this server can read", "unsupported_audio")
+    if info.duration < MIN_SECONDS:
+        return error(400, f"the clip is shorter than {MIN_SECONDS:g} seconds", "too_short")
+    if info.duration > MAX_SECONDS:
+        return error(400, f"the clip is longer than {MAX_SECONDS:g} seconds", "too_long")
+    engine = state.engine
+    try:
+        async with generation_lock:
+            await asyncio.to_thread(engine.prepare, voice)
+    except Exception:  # noqa: BLE001 - report it to the bot; the details stay in the log
+        log.exception("could not clone uploaded voice %s", voice_id)
+        return error(500, "cloning the voice failed", "clone_failed")
+    return JSONResponse(
+        {
+            "id": voice_id,
+            "durationSec": round(info.duration, 2),
+            "sampleRate": info.sample_rate,
+            "channels": info.channels,
+            "truncated": info.duration > CLONED_SECONDS,
+        }
+    )
+
+
+@app.delete("/v1/user-voices/{voice_id}", response_model=None)
+async def delete_user_voice(voice_id: str) -> Response:
+    if not user_voices.is_user_voice_id(voice_id):
+        return error(400, "invalid voice id", "invalid_id")
+    if state.engine is None:
+        return error(503, "the model is still loading", "not_ready")
+    await asyncio.to_thread(state.engine.forget, user_voices.forgotten_user_voice(voice_id))
+    return Response(status_code=204)
+
+
 @app.post("/v1/audio/speech", response_model=None)
 async def speech(request: Request) -> JSONResponse | StreamingResponse:
     try:
@@ -175,7 +242,7 @@ async def speech(request: Request) -> JSONResponse | StreamingResponse:
     if state.engine is None:
         return error(503, "the model is still loading", "not_ready")
     requested = str(body.get("voice") or "default").lower()
-    voice = state.voices.get(DEFAULT_VOICE if requested == "default" else requested)
+    voice = resolve_voice(DEFAULT_VOICE if requested == "default" else requested)
     if voice is None:
         return error(400, f"unknown voice {requested!r}", "unknown_voice")
     return StreamingResponse(generate(state.engine, text.strip(), voice), media_type="application/octet-stream")

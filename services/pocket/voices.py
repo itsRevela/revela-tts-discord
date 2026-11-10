@@ -24,6 +24,11 @@ class Voice:
     custom: bool = False
     source: Path | None = None
 
+    @property
+    def cache_name(self) -> str:
+        """File-safe name for cached clones ("user:abc" becomes "user-abc")."""
+        return self.name.replace(":", "-")
+
 
 def custom_voices(directory: Path) -> dict[str, Voice]:
     """Every <Name>.wav in `directory`, keyed by lowercase name."""

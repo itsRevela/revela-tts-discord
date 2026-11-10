@@ -1,5 +1,10 @@
 import type { Config } from '../config/config.ts';
 import { announceCommand } from './announce.ts';
+import { communityVoicesCommand } from './communityVoices.ts';
+import { myVoicesCommand } from './myVoices/index.ts';
+import { createReportVoiceCommand } from './reportVoice.ts';
+import { voiceModCommand } from './voiceMod.ts';
+import { searchCommand } from './search.ts';
 import { autoReadCommand } from './autoRead.ts';
 import { customVoiceCommand } from './customVoice.ts';
 import { leaveCommand } from './leave.ts';
@@ -14,6 +19,11 @@ export function createCommands(config: Config): ReadonlyMap<string, SlashCommand
   const commands = [
     createTtsCommand(config.maxTextLength),
     voiceCommand,
+    searchCommand,
+    communityVoicesCommand,
+    myVoicesCommand,
+    createReportVoiceCommand(),
+    voiceModCommand,
     customVoiceCommand,
     createUnlockCommand(),
     announceCommand,

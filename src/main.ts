@@ -13,11 +13,16 @@ import { preferenceDefaultsFor } from './preferences/catalogDefaults.ts';
 import { loadPreferenceStore } from './preferences/preferenceStore.ts';
 import { loadInBackground } from './tts/backgroundModels.ts';
 import { loadModels } from './tts/loadModels.ts';
-import { createModelCatalog, type ModelCatalog } from './tts/modelCatalog.ts';
+import { createModelCatalog, type LoadedModel, type ModelCatalog } from './tts/modelCatalog.ts';
 import { findModelDefinition } from './tts/modelRegistry.ts';
 import { createSynthesizer } from './tts/synthesizer.ts';
 import { settleReplyDeletions } from './discord/replyCleanup.ts';
+import { resolveOwners } from './discord/owners.ts';
 import { handleAutoReadMessage } from './autoRead/autoReadMessages.ts';
+import { loadCatalogStore } from './userVoices/catalogStore.ts';
+import { createUserVoiceSync, type UserVoiceSync } from './userVoices/catalogVoices.ts';
+import { loadModerationStore } from './userVoices/moderation.ts';
+import { setUpUserVoices, userVoicesDirectory } from './userVoices/setup.ts';
 import type { TtsModel } from './tts/types.ts';
 
 /** Docker allows 10 s between SIGTERM and SIGKILL. */
@@ -39,7 +44,11 @@ function loadConfig(): Config {
  * Loads in-process models now and server-backed ("remote") ones in the
  * background; the latter join the catalog when their server is ready.
  */
-async function loadCatalog(config: Config, logger: Logger): Promise<ModelCatalog> {
+async function loadCatalog(
+  config: Config,
+  logger: Logger,
+  prepare: (model: LoadedModel) => LoadedModel,
+): Promise<ModelCatalog> {
   const definitions = config.models
     .map((id) => findModelDefinition(id))
     .filter((model): model is TtsModel => model !== undefined);
@@ -61,14 +70,20 @@ async function loadCatalog(config: Config, logger: Logger): Promise<ModelCatalog
   });
   const catalog = createModelCatalog(models, config.defaultModel, config.models);
   loadInBackground(definitions.filter(inBackground), options, (model) => {
-    catalog.add(model);
-    logger.info('Model joined /voice', { model: model.id, voices: model.voices.length });
+    const joined = prepare(model);
+    catalog.add(joined);
+    logger.info('Model joined /voice', { model: model.id, voices: joined.voices.length });
   });
   return catalog;
 }
 
-async function start(config: Config, logger: Logger): Promise<void> {
-  const catalog = await loadCatalog(config, logger);
+async function start(baseConfig: Config, logger: Logger): Promise<void> {
+  const config = await resolveOwners(baseConfig, logger);
+  const userVoices = await loadCatalogStore(path.join(config.dataDir, 'user-voices', 'catalog.json'), logger);
+  let userVoiceSync: UserVoiceSync | undefined;
+  const catalog = await loadCatalog(config, logger, (model) => userVoiceSync?.joined(model) ?? model);
+  // Set before any background model can join: those callbacks run on later ticks.
+  userVoiceSync = createUserVoiceSync(catalog, userVoices);
   const preferences = await loadPreferenceStore({
     filePath: path.join(config.dataDir, 'preferences.json'),
     defaults: preferenceDefaultsFor(catalog, config.defaultVoice, config.customVoicesPassword !== undefined),
@@ -81,9 +96,19 @@ async function start(config: Config, logger: Logger): Promise<void> {
     maxQueueLength: config.maxQueueLength,
     idleTimeoutMs: config.idleTimeoutMs,
   });
+  const moderation = await loadModerationStore(path.join(userVoicesDirectory(config), 'moderation.json'), logger);
+  const userVoiceService = await setUpUserVoices(config, userVoices, catalog, logger, (userId) => moderation.isBanned(userId));
   const commands = createCommands(config);
   const client = createDiscordClient();
-  const handleInteraction = createInteractionHandler(commands, { config, speakers, preferences, catalog, logger });
+  const handleInteraction = createInteractionHandler(commands, {
+    config,
+    speakers,
+    preferences,
+    catalog,
+    logger,
+    userVoices: userVoiceService,
+    moderation,
+  });
 
   client.once(Events.ClientReady, (ready) => {
     logger.info('Connected to Discord', { user: ready.user.tag, guilds: ready.guilds.cache.size });

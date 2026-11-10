@@ -1,6 +1,17 @@
 import { LOG_LEVELS, type LogLevel } from '../logging/logger.ts';
 import { MODEL_IDS, findModelDefinition } from '../tts/modelRegistry.ts';
 
+/** Voices users upload with /myvoices and share as community voices. */
+export interface UserVoiceSettings {
+  /** USER_VOICE_UPLOADS=false stops new uploads and publishing; existing voices keep working. */
+  readonly uploadsEnabled: boolean;
+  readonly maxPerUser: number;
+  readonly maxTotal: number;
+  readonly maxBytes: number;
+  /** Upload attempts allowed per user every 10 minutes. */
+  readonly uploadsPerWindow: number;
+}
+
 export interface Config {
   readonly discordToken: string;
   /** When set, slash commands register to this guild only (instant updates while testing). */
@@ -27,6 +38,11 @@ export interface Config {
   readonly replyDeleteMs: number;
   readonly dataDir: string;
   readonly logLevel: LogLevel;
+  readonly userVoices: UserVoiceSettings;
+  /** Discord user ids allowed to moderate community voices (/voicemod). */
+  readonly ownerUserIds: readonly string[];
+  /** Where community voice reports are posted, if set. */
+  readonly modLogChannelId: string | undefined;
 }
 
 export class ConfigError extends Error {
@@ -119,6 +135,31 @@ function readModels(env: Env, problems: string[]): ModelSettings {
   return { models, defaultModel, defaultVoice };
 }
 
+function readSnowflake(env: Env, key: string, problems: string[]): string | undefined {
+  const value = readText(env, key);
+  if (value !== undefined && !SNOWFLAKE.test(value)) problems.push(`${key} must be a Discord id (got "${value}")`);
+  return value !== undefined && SNOWFLAKE.test(value) ? value : undefined;
+}
+
+function readSnowflakeList(env: Env, key: string, problems: string[]): readonly string[] {
+  const ids = (readText(env, key) ?? '').split(',').map((id) => id.trim()).filter(Boolean);
+  const invalid = ids.filter((id) => !SNOWFLAKE.test(id));
+  if (invalid.length > 0) problems.push(`${key} must list Discord user ids (got "${invalid.join(', ')}")`);
+  return Object.freeze([...new Set(ids.filter((id) => SNOWFLAKE.test(id)))]);
+}
+
+function readUserVoices(env: Env, problems: string[]): UserVoiceSettings {
+  const integer = (key: string, fallback: number, max: number): number =>
+    readNumber(env, key, { fallback, min: 1, max, integer: true }, problems);
+  return Object.freeze({
+    uploadsEnabled: readBoolean(env, 'USER_VOICE_UPLOADS', true, problems),
+    maxPerUser: integer('USER_VOICE_MAX_PER_USER', 5, 50),
+    maxTotal: integer('USER_VOICE_MAX_TOTAL', 200, 5000),
+    maxBytes: integer('USER_VOICE_MAX_MB', 10, 25) * 1024 * 1024,
+    uploadsPerWindow: integer('USER_VOICE_UPLOADS_PER_WINDOW', 3, 50),
+  });
+}
+
 export function parseConfig(env: Env): Config {
   const problems: string[] = [];
 
@@ -153,6 +194,9 @@ export function parseConfig(env: Env): Config {
     replyDeleteMs: readNumber(env, 'REPLY_DELETE_MINUTES', { fallback: 0, min: 0, max: 1440, integer: false }, problems) * 60_000,
     dataDir: readText(env, 'DATA_DIR') ?? '/data',
     logLevel: logLevel ?? 'info',
+    userVoices: readUserVoices(env, problems),
+    ownerUserIds: readSnowflakeList(env, 'OWNER_USER_IDS', problems),
+    modLogChannelId: readSnowflake(env, 'MOD_LOG_CHANNEL_ID', problems),
   };
 
   if (problems.length > 0) throw new ConfigError(problems);

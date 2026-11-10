@@ -6,6 +6,7 @@ import { KOKORO_VOICES_BY_GRADE } from '../../src/tts/models/kokoro/voices.ts';
 import { POCKET_VOICES } from '../../src/tts/models/pocket/voices.ts';
 import { CUSTOM_VOICES as CUSTOM_GROUP, entriesInGroup, entryValue, voiceEntries } from '../../src/tts/voiceDirectory.ts';
 import { CUSTOM_VOICES, loadedModel } from '../helpers/catalog.ts';
+import { searchCommand } from '../../src/commands/search.ts';
 import { voiceCommand } from '../../src/commands/voice.ts';
 import {
   USER_ID,
@@ -34,43 +35,50 @@ describe('/voice', () => {
     assert.equal(view.components.length, 3);
   });
 
+  it('no longer takes a typed name (that is /search)', () => {
+    assert.equal(voiceCommand.data.options?.length ?? 0, 0);
+    assert.equal(voiceCommand.autocomplete, undefined);
+  });
+});
+
+describe('/search', () => {
   it('switches model when a voice from another model is chosen', async () => {
     const preferences = memoryPreferences();
-    const interaction = fakeInteraction({ commandName: 'voice', strings: { name: 'kokoro:bm_george' } });
-    await voiceCommand.execute(interaction, commandContext({ preferences }));
+    const interaction = fakeInteraction({ commandName: 'search', strings: { query: 'kokoro:bm_george' } });
+    await searchCommand.execute(interaction, commandContext({ preferences }));
     assert.deepEqual(preferences.get(USER_ID), { model: 'kokoro', voice: 'bm_george', announceName: true, customVoices: true });
     assert.equal(contentOf(interaction.replies[0]), 'Your /tts messages will now use George (British male) · grade C · Kokoro.');
   });
 
   it('accepts a bare voice id typed by hand', async () => {
     const preferences = onKokoro();
-    await voiceCommand.execute(fakeInteraction({ commandName: 'voice', strings: { name: 'marius' } }), commandContext({ preferences }));
+    await searchCommand.execute(fakeInteraction({ commandName: 'search', strings: { query: 'marius' } }), commandContext({ preferences }));
     assert.deepEqual(preferences.get(USER_ID), { model: 'pocket', voice: 'marius', announceName: true, customVoices: true });
   });
 
   it('accepts custom voices too and rejects unknown names', async () => {
     const custom = memoryPreferences();
-    const pick = fakeInteraction({ commandName: 'voice', strings: { name: 'pocket:custom:rekp' } });
-    await voiceCommand.execute(pick, commandContext({ preferences: custom }));
+    const pick = fakeInteraction({ commandName: 'search', strings: { query: 'pocket:custom:rekp' } });
+    await searchCommand.execute(pick, commandContext({ preferences: custom }));
     assert.deepEqual(custom.get(USER_ID), { model: 'pocket', voice: 'custom:rekp', announceName: true, customVoices: true });
     assert.equal(contentOf(pick.replies[0]), 'Your /tts messages will now use rekp (custom) · Pocket TTS.');
 
     const preferences = memoryPreferences();
-    const unknown = fakeInteraction({ commandName: 'voice', strings: { name: 'robot' } });
-    await voiceCommand.execute(unknown, commandContext({ preferences }));
+    const unknown = fakeInteraction({ commandName: 'search', strings: { query: 'robot' } });
+    await searchCommand.execute(unknown, commandContext({ preferences }));
     assert.match(contentOf(unknown.replies[0]), /isn't one of the voices/);
     assert.deepEqual(preferences.stored(), {});
   });
 
   it('autocompletes across every model with model-qualified values', async () => {
-    const interaction = fakeAutocomplete('voice', 'brit');
-    await voiceCommand.autocomplete?.(interaction, commandContext());
+    const interaction = fakeAutocomplete('search', 'brit');
+    await searchCommand.autocomplete?.(interaction, commandContext());
     const [choices] = interaction.responses as Choice[][];
     assert.equal(choices?.length, 8);
     assert.deepEqual(choices?.[0], { name: 'Emma (British female) · grade B- · Kokoro', value: 'kokoro:bf_emma' });
 
-    const empty = fakeAutocomplete('voice', '');
-    await voiceCommand.autocomplete?.(empty, commandContext());
+    const empty = fakeAutocomplete('search', '');
+    await searchCommand.autocomplete?.(empty, commandContext());
     const [mixed] = empty.responses as Choice[][];
     assert.ok(mixed?.some((choice) => choice.value.startsWith('pocket:')));
     assert.ok(mixed?.some((choice) => choice.value.startsWith('kokoro:zf_')));

@@ -3,12 +3,13 @@ import {
   type ChatInputCommandInteraction,
   type Interaction,
   type MessageComponentInteraction,
+  type ModalSubmitInteraction,
 } from 'discord.js';
 import type { CommandContext, SlashCommand } from '../commands/types.ts';
 
 const FAILURE_MESSAGE = 'Something went wrong running that command. Try again in a moment.';
 
-async function reportFailure(interaction: ChatInputCommandInteraction | MessageComponentInteraction): Promise<void> {
+async function reportFailure(interaction: ChatInputCommandInteraction | MessageComponentInteraction | ModalSubmitInteraction): Promise<void> {
   if (interaction.deferred || interaction.replied) {
     await interaction.editReply({ content: FAILURE_MESSAGE, allowedMentions: { parse: [] } });
   } else {
@@ -42,6 +43,19 @@ export function createInteractionHandler(
         logger.error('Component interaction failed', { error, customId: interaction.customId });
         await reportFailure(interaction).catch((replyError: unknown) => {
           logger.warn('Could not report the component failure to the user', { error: replyError });
+        });
+      }
+      return;
+    }
+    if (interaction.isModalSubmit()) {
+      const command = commands.get(interaction.customId.split(':')[0] ?? '');
+      if (!command?.modal) return;
+      try {
+        await command.modal(interaction, context);
+      } catch (error: unknown) {
+        logger.error('Form submission failed', { error, customId: interaction.customId });
+        await reportFailure(interaction).catch((replyError: unknown) => {
+          logger.warn('Could not report the form failure to the user', { error: replyError });
         });
       }
       return;

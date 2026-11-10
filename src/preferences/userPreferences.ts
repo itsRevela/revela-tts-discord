@@ -34,6 +34,12 @@ export interface PreferencePatch {
 
 export type StoredPreferences = Readonly<Record<string, StoredUserPreferences>>;
 
+/** What a user may use: curated custom voices once unlocked, and their own uploads. */
+export interface VoiceAccess {
+  readonly customVoices: boolean;
+  readonly userId: string;
+}
+
 /** Decides what stored choices mean today, given which models and voices are loaded. */
 export interface PreferenceDefaults {
   readonly announceName: boolean;
@@ -41,8 +47,8 @@ export interface PreferenceDefaults {
   readonly customVoicesLocked: boolean;
   /** The model to use for a stored choice (unknown or unloaded models fall back). */
   resolveModel(requested: string | undefined): string;
-  /** The voice to use with `model` for a stored choice (unknown voices, and custom ones when not allowed, fall back). */
-  resolveVoice(model: string, requested: string | undefined, allowCustom: boolean): string;
+  /** The voice to use with `model` for a stored choice; unknown voices, and ones this user may not use, fall back. */
+  resolveVoice(model: string, requested: string | undefined, access: VoiceAccess): string;
 }
 
 const SNOWFLAKE = /^\d{17,20}$/;
@@ -108,7 +114,7 @@ export function resolvePreferences(
   const customVoices = !defaults.customVoicesLocked || entry?.customVoicesUnlocked === true;
   return {
     model,
-    voice: defaults.resolveVoice(model, entry?.voices?.[model], customVoices),
+    voice: defaults.resolveVoice(model, entry?.voices?.[model], { customVoices, userId }),
     announceName: entry?.announceName ?? defaults.announceName,
     customVoices,
   };

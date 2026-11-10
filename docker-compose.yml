@@ -52,6 +52,8 @@ services:
     volumes:
       - pocket-cache:/home/pocket/.cache
       - ${DATA_PATH:-/mnt/user/appdata/revela-tts-discord/data}/voices:/voices:ro
+      # Clips uploaded through /myvoices; the bot writes them, Pocket only reads and clones.
+      - ${DATA_PATH:-/mnt/user/appdata/revela-tts-discord/data}/user-voices:/user-voices:ro
 
   # Neuphonic NeuTTS Air behind this repository's small Python server
   # (services/neutts), which speaks the same speech API as Phonon. The model

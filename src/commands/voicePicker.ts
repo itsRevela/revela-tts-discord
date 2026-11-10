@@ -15,6 +15,7 @@ import {
   entryValue,
   voiceGroups,
   type VoiceEntry,
+  type VoiceListOptions,
 } from '../tts/voiceDirectory.ts';
 
 /** Discord select menus hold at most 25 options, so that is one page. */
@@ -58,8 +59,8 @@ function pageCount(entries: readonly VoiceEntry[]): number {
 }
 
 /** Where to open the picker: the filter and page holding the user's current voice. */
-export function initialPickerState(catalog: ModelCatalog, currentValue: string, includeCustom = true): PickerState {
-  const entries = voiceEntries(catalog, includeCustom);
+export function initialPickerState(catalog: ModelCatalog, currentValue: string, options: VoiceListOptions = {}): PickerState {
+  const entries = voiceEntries(catalog, options);
   const current = entries.find((entry) => entryValue(entry) === currentValue);
   if (!current) return { groupId: ALL_VOICES.id, page: 0 };
   const inGroup = entriesInGroup(entries, current.group.id);
@@ -116,9 +117,9 @@ export function renderVoicePicker(
   requested: PickerState,
   currentValue: string,
   notice?: string,
-  includeCustom = true,
+  options: VoiceListOptions = {},
 ): PickerView {
-  const entries = voiceEntries(catalog, includeCustom);
+  const entries = voiceEntries(catalog, options);
   const groups = voiceGroups(entries);
   const groupId = groups.some((group) => group.id === requested.groupId) ? requested.groupId : ALL_VOICES.id;
   const inGroup = entriesInGroup(entries, groupId);

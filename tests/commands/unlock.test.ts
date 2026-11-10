@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { LOCKED, customVoiceCommand } from '../../src/commands/customVoice.ts';
 import { UNLOCKED, createUnlockCommand } from '../../src/commands/unlock.ts';
+import { searchCommand } from '../../src/commands/search.ts';
 import { voiceCommand } from '../../src/commands/voice.ts';
 import type { Logger } from '../../src/logging/logger.ts';
 import { silentLogger } from '../../src/logging/logger.ts';
@@ -80,14 +81,14 @@ describe('custom voices while locked', () => {
     assert.deepEqual(suggestions.responses, [[]]);
   });
 
-  it('are hidden from /voice and refused when typed', async () => {
+  it('are hidden from /voice and /search and refused when typed', async () => {
     const context = commandContext({ config: lockedConfig(), preferences: lockedPreferences() });
-    const typed = fakeInteraction({ commandName: 'voice', strings: { name: 'pocket:custom:rekp' } });
-    await voiceCommand.execute(typed, context);
+    const typed = fakeInteraction({ commandName: 'search', strings: { query: 'pocket:custom:rekp' } });
+    await searchCommand.execute(typed, context);
     assert.equal(contentOf(typed.replies[0]), LOCKED);
 
-    const search = fakeAutocomplete('voice', 'custom');
-    await voiceCommand.autocomplete?.(search, context);
+    const search = fakeAutocomplete('search', 'custom');
+    await searchCommand.autocomplete?.(search, context);
     assert.deepEqual(search.responses, [[]]);
 
     const picker = fakeInteraction({ commandName: 'voice' });

@@ -3,6 +3,7 @@ import type {
   ChatInputCommandInteraction,
   GuildMember,
   MessageComponentInteraction,
+  ModalSubmitInteraction,
   VoiceBasedChannel,
 } from 'discord.js';
 import { ChannelType } from 'discord.js';
@@ -13,6 +14,7 @@ import type { SpeechPlayer } from '../../src/playback/speechQueue.ts';
 import type { GuildSpeaker, GuildSpeakers, SpeakInput, SpeakResult } from '../../src/playback/guildSpeakers.ts';
 import type { ModelSynthesisRequest, Synthesizer } from '../../src/tts/synthesizer.ts';
 import { memoryPreferences, testCatalog } from './catalog.ts';
+import { fakeUserVoices, memoryModeration } from './userVoices.ts';
 
 export { memoryPreferences, testCatalog } from './catalog.ts';
 
@@ -176,6 +178,8 @@ export function commandContext(parts: Partial<CommandContext> = {}): CommandCont
     preferences: memoryPreferences(),
     catalog: testCatalog(),
     logger: silentLogger,
+    userVoices: fakeUserVoices().service,
+    moderation: memoryModeration(),
     ...parts,
   };
 }
@@ -235,10 +239,22 @@ export interface FakeInteractionOptions {
   channels?: Record<string, unknown>;
   /** The channel the command was used in. */
   channel?: unknown;
+  /** Attachment options by name. */
+  attachments?: Record<string, unknown>;
+  /** User options by name. */
+  users?: Record<string, unknown>;
+  /** The invoking user's id. */
+  userId?: string;
 }
 
 export type FakeChatInteraction = ChatInputCommandInteraction & {
   readonly replies: Reply[];
+  /** Pop-up forms shown with showModal. */
+  readonly modals: unknown[];
+  /** Direct messages sent through interaction.client, as "userId: text". */
+  readonly dms: string[];
+  /** Messages sent to channels fetched through interaction.client, as "channelId: text". */
+  readonly posts: string[];
   /** How the reply was deleted: "interaction" (deleteReply) or "channel" (message.delete). */
   readonly deletions: string[];
 };
@@ -246,15 +262,39 @@ export type FakeChatInteraction = ChatInputCommandInteraction & {
 export function fakeInteraction(options: FakeInteractionOptions = {}): FakeChatInteraction {
   const replies: Reply[] = [];
   const deletions: string[] = [];
+  const modals: unknown[] = [];
+  const dms: string[] = [];
+  const posts: string[] = [];
   const member = options.member ?? fakeMember();
   const interaction = {
     replies,
     deletions,
+    modals,
+    dms,
+    posts,
+    client: {
+      users: {
+        send: async (userId: string, text: string) => {
+          dms.push(`${userId}: ${text}`);
+        },
+      },
+      channels: {
+        fetch: async (channelId: string) => ({
+          isSendable: () => true,
+          send: async (message: { content: string }) => {
+            posts.push(`${channelId}: ${message.content}`);
+          },
+        }),
+      },
+    },
+    showModal: async (modal: unknown) => {
+      modals.push(modal);
+    },
     commandName: options.commandName ?? 'tts',
     guildId: GUILD_ID,
     deferred: false,
     replied: false,
-    user: { id: USER_ID, username: options.username ?? 'alex_user' },
+    user: { id: options.userId ?? USER_ID, username: options.username ?? 'alex_user' },
     member,
     guild: {
       id: GUILD_ID,
@@ -266,6 +306,7 @@ export function fakeInteraction(options: FakeInteractionOptions = {}): FakeChatI
     inCachedGuild: () => options.inGuild ?? true,
     isAutocomplete: () => false,
     isMessageComponent: () => false,
+    isModalSubmit: () => false,
     isChatInputCommand: () => true,
     channel: options.channel ?? null,
     options: {
@@ -273,6 +314,8 @@ export function fakeInteraction(options: FakeInteractionOptions = {}): FakeChatI
       getBoolean: (name: string) => options.booleans?.[name] ?? null,
       getSubcommand: () => options.subcommand ?? '',
       getChannel: (name: string) => options.channels?.[name] ?? null,
+      getAttachment: (name: string) => options.attachments?.[name] ?? null,
+      getUser: (name: string) => options.users?.[name] ?? null,
     },
     reply: async (payload: unknown) => {
       replies.push({ kind: 'reply', payload });
@@ -301,6 +344,7 @@ export function fakeAutocomplete(commandName: string, focused: string): Autocomp
     user: { id: USER_ID },
     isAutocomplete: () => true,
     isMessageComponent: () => false,
+    isModalSubmit: () => false,
     isChatInputCommand: () => false,
     options: { getFocused: () => focused },
     respond: async (choices: unknown) => {
@@ -309,28 +353,73 @@ export function fakeAutocomplete(commandName: string, focused: string): Autocomp
   } as unknown as AutocompleteInteraction & { responses: unknown[] };
 }
 
-export type FakeComponentInteraction = MessageComponentInteraction & { readonly updates: unknown[] };
+export type FakeComponentInteraction = MessageComponentInteraction & { readonly updates: unknown[]; readonly replies: unknown[] };
 
 /** A picker click: a select menu when `values` is given, otherwise a button. */
 export function fakeComponent(customId: string, values?: string[]): FakeComponentInteraction {
   const updates: unknown[] = [];
+  const replies: unknown[] = [];
   return {
     updates,
+    replies,
     customId,
     values,
-    user: { id: USER_ID },
+    user: { id: USER_ID, username: 'alex_user' },
     deferred: false,
     replied: false,
     isAutocomplete: () => false,
     isMessageComponent: () => true,
+    isModalSubmit: () => false,
     isChatInputCommand: () => false,
     isStringSelectMenu: () => values !== undefined,
     isButton: () => values === undefined,
     update: async (payload: unknown) => {
       updates.push(payload);
     },
-    reply: async () => undefined,
+    reply: async (payload: unknown) => {
+      replies.push(payload);
+    },
   } as unknown as FakeComponentInteraction;
+}
+
+export type FakeModalInteraction = ModalSubmitInteraction & { readonly replies: Reply[] };
+
+/** A submitted pop-up form with text fields and uploaded files by custom id. */
+export function fakeModalSubmit(
+  customId: string,
+  fields: { text?: Record<string, string>; files?: Record<string, unknown[]> } = {},
+): FakeModalInteraction {
+  const replies: Reply[] = [];
+  const interaction = {
+    replies,
+    customId,
+    user: { id: USER_ID, username: 'alex_user' },
+    deferred: false,
+    replied: false,
+    isAutocomplete: () => false,
+    isMessageComponent: () => false,
+    isModalSubmit: () => true,
+    isChatInputCommand: () => false,
+    fields: {
+      getTextInputValue: (id: string) => fields.text?.[id] ?? '',
+      getUploadedFiles: (id: string) => {
+        const files = fields.files?.[id];
+        return files ? { first: () => files[0] } : null;
+      },
+    },
+    reply: async (payload: unknown) => {
+      replies.push({ kind: 'reply', payload });
+      interaction.replied = true;
+    },
+    deferReply: async (payload: unknown) => {
+      replies.push({ kind: 'defer', payload });
+      interaction.deferred = true;
+    },
+    editReply: async (payload: unknown) => {
+      replies.push({ kind: 'edit', payload });
+    },
+  };
+  return interaction as unknown as FakeModalInteraction;
 }
 
 /** Text content of a reply payload, whether a string or an options object. */

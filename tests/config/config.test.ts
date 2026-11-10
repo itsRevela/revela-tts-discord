@@ -22,6 +22,26 @@ describe('parseConfig', () => {
     assert.equal(config.logLevel, 'info');
   });
 
+  it('has uploaded-voice defaults and reads owners and the mod log channel', () => {
+    const defaults = parseConfig({ DISCORD_TOKEN: 'abc' });
+    assert.deepEqual(defaults.userVoices, { uploadsEnabled: true, maxPerUser: 5, maxTotal: 200, maxBytes: 10 * 1024 * 1024, uploadsPerWindow: 3 });
+    assert.deepEqual(defaults.ownerUserIds, []);
+    assert.equal(defaults.modLogChannelId, undefined);
+    const set = parseConfig({
+      DISCORD_TOKEN: 'abc',
+      USER_VOICE_UPLOADS: 'off',
+      USER_VOICE_MAX_PER_USER: '8',
+      OWNER_USER_IDS: '300000000000000001, 300000000000000002',
+      MOD_LOG_CHANNEL_ID: '200000000000000009',
+    });
+    assert.equal(set.userVoices.uploadsEnabled, false);
+    assert.equal(set.userVoices.maxPerUser, 8);
+    assert.deepEqual(set.ownerUserIds, ['300000000000000001', '300000000000000002']);
+    assert.equal(set.modLogChannelId, '200000000000000009');
+    assert.throws(() => parseConfig({ DISCORD_TOKEN: 'abc', OWNER_USER_IDS: 'revela' }), (error: unknown) =>
+      error instanceof ConfigError && error.problems.some((item) => item.includes('OWNER_USER_IDS')));
+  });
+
   it('requires a token', () => {
     assert.throws(() => parseConfig({}), (error: unknown) =>
       error instanceof ConfigError && error.problems.some((problem) => problem.includes('DISCORD_TOKEN')));

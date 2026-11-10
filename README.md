@@ -18,7 +18,13 @@ Models are modules. Each one lives in `src/tts/models/<id>/` with its voice cata
 | Command | What it does |
 |---|---|
 | `/tts text:<message>` | Joins your voice channel (if not already there) and reads the message aloud with your model and voice. If playback hasn't started within 1.5 s (slow models such as NeuTTS, or a busy queue), the reply shows a progress line that updates every 2 s ("Generating voice ▰▰▰▱▱▱▱▱▱▱ 30% · about 9 s", "In line · 2 messages ahead") and disappears when playback starts. The reply shows what was read and is deleted once the message finishes playing, is skipped, or is dropped because the bot left or disconnected (`REPLY_DELETE_AFTER_PLAYBACK`). |
-| `/voice [name]` | Picks your voice from every model. Picking one switches the model for you, so there is no separate model command. With no name it opens a private picker: a filter (All voices, Phonon, Phonon Characters, Pocket TTS, NeuTTS Air, Kokoro English, Kokoro Mandarin Chinese, Custom voices: highest quality first), 25 voices per page with Previous/Next buttons, and your current voice marked. "All voices" covers the built-in voices only; custom voices have their own filter. With a name, autocomplete searches every voice by name, accent, grade, model or "custom" (e.g. "heart", "pocket", "chinese", "rekp"). |
+| `/voice` | Opens a private picker for your voice across every model. Picking one switches the model for you, so there is no separate model command. Filters run highest quality first: All voices, Phonon, Phonon Characters, Pocket TTS, NeuTTS Air, Kokoro English, Kokoro Mandarin Chinese, Custom voices, My Voices, Community Voices. Each shows 25 voices per page with Previous/Next buttons, and your current voice is marked. "All voices" covers the built-in voices only. |
+| `/search query:<text>` | Finds a voice by name, accent, grade, model or "custom" (e.g. "heart", "pocket", "chinese", "rekp") and switches to it. Covers built-in voices, custom voices (once unlocked) and your own uploads, but not community voices. |
+| `/communityvoices [query]` | Finds a voice shared by the community by name or author and switches to it. With no query it opens the picker on Community Voices. |
+| `/myvoices add [name] [clip]` | Clones a voice from your own recording for Pocket TTS. With no clip it opens a form with tips, a name field and a file picker (.ogg, .mp3, .wav or .flac). A private progress bar follows, then a short preview and a "Use it now" button. |
+| `/myvoices list` · `rename` · `delete` · `publish` · `unpublish` | Manage your uploads. Rename and delete apply to the published copy too. Publish and delete ask you to confirm; publishing restates the consent rule. Published voices show your Discord username as their author. |
+| `/reportvoice voice:<voice> reason:<text>` | Reports a community voice to the bot's owners. |
+| `/voicemod takedown` · `ban` · `unban` · `list` | Bot owners only: delete a community voice (the author is told why), stop someone uploading (their voices are unpublished), and list uploads. |
 | `/customvoice [name]` | A shortcut listing only the custom voices (also in `/voice` under "Custom voices"). Pocket TTS versions are listed first, then NeuTTS. Picking one switches you to the model that clones it. |
 | `/unlock password:<password>` | Unlocks the custom voices for you when `CUSTOM_VOICES_PASSWORD` is set. The reply is private and the password is never logged. After 5 wrong tries, you wait 15 minutes. Until you unlock, custom voices are hidden from `/voice` and `/customvoice`, and a custom voice you picked earlier falls back to that model's default. |
 | `/announce [enabled]` | Turns "*Alex says,* ..." on or off for your messages. On by default. With no option it toggles. The name is only said when the speaker changes. |
@@ -45,6 +51,29 @@ The results are cached in `data/voices/neutts/`: `<Name>.pt` (the encoded clip),
 **Pocket (automatic).** Uses the same original recordings in `data/voices/<Name>.wav`; restart the `pocket` container after adding one. On startup it clones each new or changed recording once (Kyutai reads up to 30 s of it, ending at a pause) and caches the result in the `pocket-cache` volume, so later starts are quick.
 
 Recordings are kept out of git and the image (`.gitignore` and `.dockerignore` exclude audio files), and they never leave the server. Only clone people who are fine with it.
+
+## Uploaded and community voices
+
+Anyone can clone voices from their own recordings with `/myvoices add`. Uploads always use Pocket TTS.
+
+- **Flow**:
+  1. The bot downloads the clip, checks that its contents really are the audio format its name says, and has the Pocket server decode it (3–60 s; the first 30 s are cloned) and clone it.
+  2. A short preview comes back with a "Use it now" button.
+  3. Uploads are processed one at a time; anyone waiting sees their place.
+- **Sharing**: `/myvoices publish` adds a voice to Community Voices, credited to your Discord username. Published names must be unique, may not copy one of the bot's own voices, and are checked against the name blacklist. Private names are not checked.
+- **Removal**: deleting or unpublishing a voice moves anyone using it back to Pocket's default voice.
+- **Limits** (set in `.env`): 5 voices per user, 200 in total, 10 MB per clip, 3 uploads per 10 minutes. `USER_VOICE_UPLOADS=false` stops new uploads and publishing at once; existing voices keep working.
+- **Moderation**:
+  - `/voicemod` is for the ids in `OWNER_USER_IDS`, or the bot application's owner when that is unset.
+  - `/reportvoice` reports are kept in `data/user-voices/moderation.json` and posted to `MOD_LOG_CHANNEL_ID` when it is set.
+- **Name blacklist**: `data/name-blacklist.txt`, one term per line, `#` for comments.
+  - A term blocks any published name containing it. Case, accents, look-alike letters and leetspeak are folded first, so `B4dw0rd` matches `badword`.
+  - A term starting with `=` only blocks it as a whole word, so short words don't catch harmless ones (`=ass` blocks "Big Ass Voice" but not "Bass Singer").
+  - The file is read at startup; restart the bot after editing it.
+- **Storage**:
+  - Clips live in `data/user-voices/<id>/source.<ext>`, which the Pocket container reads read-only.
+  - The list of voices is `data/user-voices/catalog.json`.
+  - Pocket's cached clones are rebuilt on demand if lost.
 
 ## Discord setup
 
@@ -93,6 +122,13 @@ Set these in `.env`. Only `DISCORD_TOKEN` is required.
 | `MAX_QUEUE_LENGTH` | `10` | Messages waiting per server. |
 | `IDLE_TIMEOUT_MINUTES` | `15` | Leave after this long without messages. `0` never leaves. |
 | `CUSTOM_VOICES_PASSWORD` | unset | When set, custom voices need `/unlock` with this password; each user unlocks once. Unset means custom voices are open to everyone. Keep it in the server's `.env` only, single-quoted if it contains `$`. |
+| `USER_VOICE_UPLOADS` | `true` | `false` stops new uploads and publishing; existing uploaded voices keep working. |
+| `USER_VOICE_MAX_PER_USER`, `USER_VOICE_MAX_TOTAL` | `5`, `200` | Uploaded voices per person, and in total. |
+| `USER_VOICE_MAX_MB` | `10` | Largest clip accepted. |
+| `USER_VOICE_UPLOADS_PER_WINDOW` | `3` | Upload attempts per person every 10 minutes. |
+| `OWNER_USER_IDS` | the bot application's owner | Comma-separated Discord user ids allowed to use `/voicemod`. |
+| `MOD_LOG_CHANNEL_ID` | unset | Channel that receives `/reportvoice` reports. |
+| `POCKET_USER_VOICE_MIN_SECONDS`, `POCKET_USER_VOICE_MAX_SECONDS` | `3`, `60` | Clip length accepted by the Pocket server (set on the `pocket` container). |
 | `REPLY_DELETE_AFTER_PLAYBACK` | `true` | Delete each `/tts` reply once its message is done: played, skipped, or dropped when the bot leaves or disconnects. Error replies (such as a failed join) are deleted after 15 seconds. `false` keeps them. |
 | `REPLY_DELETE_MINUTES` | `0` | Also delete the `/tts` reply after this long, whichever comes first. `0` turns the timer off. Up to 14 minutes the reply is deleted through the interaction; longer delays delete it through the channel, which needs View Channel there. Deletions still pending when the bot restarts are dropped, so those replies stay. |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
@@ -125,6 +161,8 @@ src/
   discord/                client, interaction routing, command registration, reply cleanup, voice-state watcher
   speech/                 shared by /tts and auto-read: preflight checks and speaking for a member
   autoRead/               /autoread message handling and the progress reaction
+  userVoices/             uploaded and community voices: catalog and its store, name rules and blacklist, upload pipeline, Pocket client, moderation
+  commands/myVoices/      /myvoices: the upload form and progress, and managing your voices
   unlock/                 /unlock password check (constant time) and wrong-attempt limiter
   playback/               speech queue (streams each message as it is synthesized), playback buffer, message status, voice session, per-guild speakers
   loading/                the /tts progress line: rendering and the throttled reply updater

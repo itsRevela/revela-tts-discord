@@ -1,5 +1,13 @@
 import type { ModelCatalog } from '../tts/modelCatalog.ts';
-import type { PreferenceDefaults } from './userPreferences.ts';
+import type { Voice } from '../tts/types.ts';
+import type { PreferenceDefaults, VoiceAccess } from './userPreferences.ts';
+
+/** Curated voices need /unlock; a private upload is usable only by its owner. */
+export function mayUseVoice(voice: Voice, access: VoiceAccess): boolean {
+  if (voice.custom && !access.customVoices) return false;
+  if (voice.uploaded && !voice.uploaded.published && voice.uploaded.ownerId !== access.userId) return false;
+  return true;
+}
 
 /**
  * Preference defaults backed by the loaded models: stored choices for models
@@ -21,9 +29,9 @@ export function preferenceDefaultsFor(
     announceName: true,
     customVoicesLocked,
     resolveModel: (requested) => (requested && catalog.findModel(requested) ? requested : catalog.defaultModelId),
-    resolveVoice: (model, requested, allowCustom) => {
+    resolveVoice: (model, requested, access) => {
       const voice = requested ? catalog.findVoice(model, requested) : undefined;
-      return voice && (allowCustom || !voice.custom) ? voice.id : modelDefaultVoice(model);
+      return voice && mayUseVoice(voice, access) ? voice.id : modelDefaultVoice(model);
     },
   };
 }

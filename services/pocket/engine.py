@@ -28,7 +28,7 @@ STATE_CACHE_DIR = Path.home() / ".cache" / "pocket_voices"
 def cached_state_path(voice: Voice) -> Path:
     """Where a custom voice's cloned state is kept; tied to the recording's change time."""
     assert voice.source is not None
-    return STATE_CACHE_DIR / f"{voice.name}-{voice.source.stat().st_mtime_ns}.safetensors"
+    return STATE_CACHE_DIR / f"{voice.cache_name}-{voice.source.stat().st_mtime_ns}.safetensors"
 
 
 class KyutaiEngine:
@@ -48,11 +48,15 @@ class KyutaiEngine:
             STATE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
             state = self._model.get_state_for_audio_prompt(voice.source, truncate=True)
             export_model_state(state, path)
-            for stale in STATE_CACHE_DIR.glob(f"{glob.escape(voice.name)}-*.safetensors"):
+            for stale in self._cached_files(voice):
                 if stale != path:
                     stale.unlink(missing_ok=True)
             log.info("cloned custom voice %s", voice.name)
         return path
+
+    @staticmethod
+    def _cached_files(voice: Voice) -> list[Path]:
+        return list(STATE_CACHE_DIR.glob(f"{glob.escape(voice.cache_name)}-*.safetensors"))
 
     def _load(self, voice: Voice) -> Any:
         source = self._clone(voice) if voice.custom else voice.name
@@ -75,6 +79,13 @@ class KyutaiEngine:
             self._clone(voice)
         else:
             self._model.get_state_for_audio_prompt(voice.name)
+
+    def forget(self, voice: Voice) -> None:
+        """Drops a voice from memory and deletes its cached clone (for deleted uploads)."""
+        with self._lock:
+            self._states.pop(voice.name, None)
+        for path in self._cached_files(voice):
+            path.unlink(missing_ok=True)
 
     def stream(self, voice: Voice, text: str, stop: threading.Event) -> Iterator[np.ndarray]:
         state = self._state(voice)

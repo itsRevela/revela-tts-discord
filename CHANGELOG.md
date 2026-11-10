@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-11-10: Uploaded and community voices
+
+**What:** (plan: `documentation/Community-Voices-Plan.md`)
+- `/myvoices add` clones a voice from a user's recording on Pocket TTS.
+  - It opens a form with tips, a name field and a file upload, or takes an attached clip directly.
+  - A private progress bar runs through download, check and clone, and preview. It ends with a WAV preview and a "Use it now" button.
+  - `/myvoices list | rename | delete | publish | unpublish`; delete and publish ask for confirmation. Rename and delete cover the published copy.
+- New `/voice` categories, My Voices and Community Voices. Community voices are credited to the author's Discord username.
+- `/voice` no longer takes a name. `/search` replaces it for everything except community voices, and `/communityvoices` searches community voices by name or author.
+- Moderation:
+  - `/reportvoice` stores reports and posts them to `MOD_LOG_CHANNEL_ID`.
+  - `/voicemod takedown | ban | unban | list` is for `OWNER_USER_IDS`, falling back to the application owner. Takedowns tell the author why, and bans unpublish the person's voices.
+  - A name blacklist (`data/name-blacklist.txt`) applies to published names only, after folding case, accents, look-alikes and leetspeak. It supports whole-word `=` terms.
+  - Published names are unique and may not copy the bot's own voices.
+- Limits: 5 per user, 200 total, 10 MB, 3–60 s, 3 uploads per 10 min, and the `USER_VOICE_UPLOADS` switch.
+- Safety:
+  - Content sniffing against the extension, a byte cap and timeout on download, and paths built only from random ids.
+  - Private uploads resolve only for their owner.
+  - Deleted or unpublished voices fall back to Pocket's default.
+- Pocket server (`services/pocket`): `POST /v1/user-voices/{id}/prepare` checks and clones a clip without overlapping generation, `DELETE /v1/user-voices/{id}` forgets one, and `user:<id>` voices are cloned on first use. Clones of deleted uploads are swept at startup, and the server reads `data/user-voices` read-only.
+
+**Why:** Owner request: user uploads and a shared community catalog, on the Pocket TTS model.
+
+**Files:**
+- New: `src/userVoices/*`, `src/commands/{myVoices/*,search,communityVoices,reportVoice,voiceMod,voiceChoice}.ts`, `src/discord/owners.ts`, `src/audio/wav.ts`, `src/tts/models/pocket/settings.ts`, `services/pocket/user_voices.py`.
+- Changed: `src/commands/{voice,voicePicker,types,index}.ts`, `src/discord/interactionRouter.ts`, `src/tts/{voiceDirectory,types}.ts`, `src/tts/speechServer/engine.ts`, `src/tts/models/pocket/engine.ts`, `src/preferences/{userPreferences,catalogDefaults}.ts`, `src/config/config.ts`, `src/main.ts`, `services/pocket/{server,engine,voices}.py`, `services/pocket/Dockerfile`, `docker-compose.yml`.
+- Tests under `tests/userVoices/`, `tests/commands/` and `services/pocket/tests/`; `README.md`; `.env.example`.
+
+## 2026-11-10: Pocket reads 24-bit and other non-16-bit recordings
+
+**What:** Added `soundfile` to the Pocket image. pocket-tts only reads 16-bit WAV without it, so the 24-bit `drum.wav` failed to clone and was left out. Added the custom voice "drum" on the server for both Pocket and NeuTTS.
+
+**Why:** A new custom recording exported from Audacity at 24-bit could not be cloned by Pocket.
+
+**Files:** `services/pocket/Dockerfile`.
+
 ## 2026-11-10: Back to Phonon (Harper) as the default voice
 
 **What:** Reverted the Pocket (Azelma) default. `DEFAULT_MODEL` defaults to `phonon` again (Harper), and Pocket's starting voice is Alba again. On the server, each user's Pocket voice was restored from the pre-Azelma backup where the migration had set it to Azelma, and every user was set to `phonon:Harper` (backup kept).

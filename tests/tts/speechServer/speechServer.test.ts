@@ -177,4 +177,21 @@ describe('speech server client and engine', () => {
     await engine.synthesize({ text: 'hi', voiceId: 'custom:tony_balogna', onChunk: () => undefined });
     assert.equal((fake.requests.at(-1) as { voice: string }).voice, 'Tony Balogna');
   });
+
+  it('passes ids the server resolves itself straight through, and nothing else', async () => {
+    const engine = await loadSpeechServerModel(
+      {
+        name: 'Pocket',
+        settings: PHONON_SETTINGS,
+        fallbackVoice: 'default',
+        describeVoices: phononVoices,
+        passThrough: (voiceId) => voiceId.startsWith('user:'),
+      },
+      { modelDir: '', numThreads: 1, speed: 1, env: { PHONON_URL: url }, logger: silentLogger },
+    );
+    await engine.synthesize({ text: 'hi', voiceId: 'user:k7m2q4z6x3b5n', onChunk: () => undefined });
+    assert.equal((fake.requests.at(-1) as { voice: string }).voice, 'user:k7m2q4z6x3b5n');
+    await engine.synthesize({ text: 'hi', voiceId: 'retired-voice', onChunk: () => undefined });
+    assert.equal((fake.requests.at(-1) as { voice: string }).voice, 'default');
+  });
 });

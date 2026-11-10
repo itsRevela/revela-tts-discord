@@ -15,6 +15,8 @@ export interface SpeechServerModel {
   readonly fallbackVoice: string;
   /** Turns the server's voice list into labelled voices. */
   readonly describeVoices: (list: ServerVoiceList) => readonly ServerVoice[];
+  /** Voice ids the server resolves itself although they are not in its list (Pocket's uploaded voices). */
+  readonly passThrough?: (voiceId: string) => boolean;
 }
 
 /**
@@ -32,6 +34,6 @@ export async function loadSpeechServerModel(model: SpeechServerModel, options: M
   return {
     voices,
     synthesize: ({ text, voiceId, onChunk, signal }) =>
-      streamSpeech(url, { text, voice: serverNames.get(voiceId) ?? model.fallbackVoice, signal }, onChunk),
+      streamSpeech(url, { text, voice: serverNames.get(voiceId) ?? (model.passThrough?.(voiceId) ? voiceId : model.fallbackVoice), signal }, onChunk),
   };
 }

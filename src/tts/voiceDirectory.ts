@@ -14,9 +14,23 @@ export interface VoiceGroup {
   readonly label: string;
 }
 
-/** Every built-in voice; custom voices have their own filter and are left out. */
+/** Every built-in voice; custom and uploaded voices have their own filters and are left out. */
 export const ALL_VOICES: VoiceGroup = { id: 'all', label: 'All voices' };
 export const CUSTOM_VOICES: VoiceGroup = { id: 'custom', label: 'Custom voices' };
+/** The user's own uploads (/myvoices). */
+export const MY_VOICES: VoiceGroup = { id: 'mine', label: 'My Voices' };
+/** Uploads their authors published, newest first. */
+export const COMMUNITY_VOICES: VoiceGroup = { id: 'community', label: 'Community Voices' };
+const SEPARATE_GROUPS: ReadonlySet<string> = new Set([CUSTOM_VOICES.id, MY_VOICES.id, COMMUNITY_VOICES.id]);
+
+export interface VoiceListOptions {
+  /** Curated custom voices (they need /unlock when a password is set). Default true. */
+  readonly includeCustom?: boolean;
+  /** Whose uploads to list under My Voices; none without it. */
+  readonly userId?: string;
+  /** Published uploads under Community Voices. Default true. */
+  readonly includeCommunity?: boolean;
+}
 
 /** Custom voices of these models are listed first, in this order; other models' follow in configured order. */
 export const CUSTOM_VOICE_MODEL_ORDER: readonly string[] = ['pocket', 'neutts'];
@@ -28,12 +42,18 @@ export function entryValue(entry: VoiceEntry): string {
   return `${entry.model.id}:${entry.voice.id}`;
 }
 
-export function entryLabel(entry: VoiceEntry): string {
-  const custom = entry.voice.custom ? ' (custom)' : '';
-  return `${entry.voice.label}${custom} · ${entry.model.name}`;
+function labelSuffix(voice: Voice): string {
+  if (voice.custom) return ' (custom)';
+  if (voice.uploaded?.published) return ` by ${voice.uploaded.authorUsername ?? 'someone'}`;
+  if (voice.uploaded) return ' (private)';
+  return '';
 }
 
-const isCustom = (entry: VoiceEntry): boolean => entry.group.id === CUSTOM_VOICES.id;
+export function entryLabel(entry: VoiceEntry): string {
+  return `${entry.voice.label}${labelSuffix(entry.voice)} · ${entry.model.name}`;
+}
+
+const isSeparate = (entry: VoiceEntry): boolean => SEPARATE_GROUPS.has(entry.group.id);
 
 /** Groups split a model by language (when it has several) and by category, e.g. "Phonon Characters". */
 function groupOf(model: LoadedModel, voice: Voice, multilingual: boolean): VoiceGroup {
@@ -52,26 +72,45 @@ function customModelRank(modelId: string): number {
   return index === -1 ? CUSTOM_VOICE_MODEL_ORDER.length : index;
 }
 
+/** Uploaded voices: the user's own (oldest first) and the published ones (newest first). */
+function uploadedEntries(catalog: ModelCatalog, userId: string | undefined, includeCommunity: boolean): readonly VoiceEntry[] {
+  const uploaded = catalog.models.flatMap((model) =>
+    model.voices.filter((voice) => voice.uploaded).map((voice) => ({ model, voice })),
+  );
+  const mine = userId
+    ? uploaded.filter(({ voice }) => voice.uploaded?.ownerId === userId).map((entry) => ({ ...entry, group: MY_VOICES }))
+    : [];
+  const community = includeCommunity
+    ? uploaded
+        .filter(({ voice }) => voice.uploaded?.published)
+        .sort((a, b) => (b.voice.uploaded?.publishedAt ?? '').localeCompare(a.voice.uploaded?.publishedAt ?? ''))
+        .map((entry) => ({ ...entry, group: COMMUNITY_VOICES }))
+    : [];
+  return [...mine, ...community];
+}
+
 /**
  * Every voice of the loaded models, in display order: built-in voices first
  * (models in configured order, each model's languages in order of first
  * appearance, voices best first within each), then the custom voices
- * (models in CUSTOM_VOICE_MODEL_ORDER).
+ * (models in CUSTOM_VOICE_MODEL_ORDER), then My Voices and Community Voices.
  */
-export function voiceEntries(catalog: ModelCatalog, includeCustom = true): readonly VoiceEntry[] {
+export function voiceEntries(catalog: ModelCatalog, options: VoiceListOptions = {}): readonly VoiceEntry[] {
+  const { includeCustom = true, userId, includeCommunity = true } = options;
   const builtIn = catalog.models.flatMap((model) => {
-    const voices = model.voices.filter((voice) => !voice.custom);
+    const voices = model.voices.filter((voice) => !voice.custom && !voice.uploaded);
     const multilingual = new Set(voices.map((voice) => voice.language ?? '')).size > 1;
     const entries = voices.map((voice) => ({ model, voice, group: groupOf(model, voice, multilingual) }));
     const groupOrder = [...new Set(entries.map((entry) => entry.group.id))];
     return groupOrder.flatMap((groupId) => entries.filter((entry) => entry.group.id === groupId));
   });
   const customModels = [...catalog.models].sort((a, b) => customModelRank(a.id) - customModelRank(b.id));
-  if (!includeCustom) return builtIn;
-  const custom = customModels.flatMap((model) =>
-    model.voices.filter((voice) => voice.custom).map((voice) => ({ model, voice, group: CUSTOM_VOICES })),
-  );
-  return [...builtIn, ...custom];
+  const custom = includeCustom
+    ? customModels.flatMap((model) =>
+        model.voices.filter((voice) => voice.custom).map((voice) => ({ model, voice, group: CUSTOM_VOICES })),
+      )
+    : [];
+  return [...builtIn, ...custom, ...uploadedEntries(catalog, userId, includeCommunity)];
 }
 
 /** The picker's filters, "All voices" first. */
@@ -81,7 +120,7 @@ export function voiceGroups(entries: readonly VoiceEntry[]): readonly VoiceGroup
 }
 
 export function entriesInGroup(entries: readonly VoiceEntry[], groupId: string): readonly VoiceEntry[] {
-  if (groupId === ALL_VOICES.id) return entries.filter((entry) => !isCustom(entry));
+  if (groupId === ALL_VOICES.id) return entries.filter((entry) => !isSeparate(entry));
   return entries.filter((entry) => entry.group.id === groupId);
 }
 
@@ -115,7 +154,7 @@ export function balanceGroups<T>(items: readonly T[], keyOf: (item: T) => string
  */
 export function searchEntries(entries: readonly VoiceEntry[], query: string, limit: number): readonly VoiceEntry[] {
   const needle = query.trim().toLowerCase();
-  if (!needle) return balanceGroups(entries.filter((entry) => !isCustom(entry)), (entry) => entry.group.id, limit);
+  if (!needle) return balanceGroups(entries.filter((entry) => !isSeparate(entry)), (entry) => entry.group.id, limit);
   return entries
     .filter((entry) => `${entry.voice.id} ${entryLabel(entry)} ${entry.group.label}`.toLowerCase().includes(needle))
     .slice(0, limit);

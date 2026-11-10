@@ -9,7 +9,8 @@ RUN python -m venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH PIP_NO_CACHE_DIR=1
 # CPU-only PyTorch first, so pocket-tts does not pull the multi-gigabyte CUDA build.
 RUN pip install "torch>=2.8" --index-url https://download.pytorch.org/whl/cpu
-RUN pip install "pocket-tts==4.0.1" "fastapi==0.162.2" "uvicorn==0.54.0"
+# soundfile lets pocket-tts read recordings that are not 16-bit WAV (24-bit, float, FLAC).
+RUN pip install "pocket-tts==4.0.1" "soundfile==0.13.1" "fastapi==0.162.2" "uvicorn==0.54.0"
 
 FROM python:3.12-slim
 RUN useradd --create-home --uid 1000 pocket \
@@ -17,7 +18,7 @@ RUN useradd --create-home --uid 1000 pocket \
  && chmod 755 /home/pocket \
  && chmod -R 1777 /home/pocket/.cache
 COPY --from=build /opt/venv /opt/venv
-COPY server.py engine.py voices.py /opt/pocket/
+COPY *.py /opt/pocket/
 # Compose runs this as Unraid's nobody:users (99:100); the cache is world-writable for that reason.
 ENV PATH=/opt/venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \

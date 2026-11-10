@@ -4,6 +4,9 @@ import { preferenceDefaultsFor } from '../../src/preferences/catalogDefaults.ts'
 import { createModelCatalog } from '../../src/tts/modelCatalog.ts';
 import { loadedModel, testCatalog } from '../helpers/catalog.ts';
 
+/** A user who may use every voice they own and the curated ones. */
+const OPEN = { customVoices: true, userId: '300000000000000001' };
+
 describe('preferenceDefaultsFor', () => {
   it('falls back to the default model for unknown or unloaded models', () => {
     const defaults = preferenceDefaultsFor(testCatalog(), undefined);
@@ -14,20 +17,20 @@ describe('preferenceDefaultsFor', () => {
 
   it('keeps available voices and falls back to the model default otherwise', () => {
     const defaults = preferenceDefaultsFor(testCatalog(), undefined);
-    assert.equal(defaults.resolveVoice('pocket', 'custom:rekp', true), 'custom:rekp');
-    assert.equal(defaults.resolveVoice('pocket', 'custom:deleted', true), 'alba');
-    assert.equal(defaults.resolveVoice('kokoro', undefined, true), 'af_heart');
+    assert.equal(defaults.resolveVoice('pocket', 'custom:rekp', OPEN), 'custom:rekp');
+    assert.equal(defaults.resolveVoice('pocket', 'custom:deleted', OPEN), 'alba');
+    assert.equal(defaults.resolveVoice('kokoro', undefined, OPEN), 'af_heart');
   });
 
   it('applies DEFAULT_VOICE to the default model only', () => {
     const defaults = preferenceDefaultsFor(testCatalog(), 'marius');
-    assert.equal(defaults.resolveVoice('pocket', undefined, true), 'marius');
-    assert.equal(defaults.resolveVoice('kokoro', undefined, true), 'af_heart');
+    assert.equal(defaults.resolveVoice('pocket', undefined, OPEN), 'marius');
+    assert.equal(defaults.resolveVoice('kokoro', undefined, OPEN), 'af_heart');
   });
 
   it('uses the first loaded voice when the model\'s default recording is missing', () => {
     const catalog = createModelCatalog([loadedModel('pocket', 'Pocket', [{ id: 'eve', label: 'Eve' }], 'alba')], 'pocket');
-    assert.equal(preferenceDefaultsFor(catalog, undefined).resolveVoice('pocket', undefined, true), 'eve');
+    assert.equal(preferenceDefaultsFor(catalog, undefined).resolveVoice('pocket', undefined, OPEN), 'eve');
   });
 
   it('gives new users Phonon with Harper once Phonon is loaded, and a stand-in before', () => {
@@ -40,6 +43,6 @@ describe('preferenceDefaultsFor', () => {
     assert.equal(defaults.resolveModel('phonon'), 'pocket', 'a stored Phonon choice waits for Phonon');
     catalog.add(loadedModel('phonon', 'Phonon', [{ id: 'default', label: 'Default' }, { id: 'Harper', label: 'Harper' }], 'Harper'));
     assert.equal(defaults.resolveModel(undefined), 'phonon');
-    assert.equal(defaults.resolveVoice('phonon', undefined, true), 'Harper');
+    assert.equal(defaults.resolveVoice('phonon', undefined, OPEN), 'Harper');
   });
 });

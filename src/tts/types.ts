@@ -28,6 +28,16 @@ export interface Voice {
   readonly category?: string;
   /** One line about how the voice sounds, shown under it in the /voice picker. */
   readonly description?: string;
+  /** Uploaded through /myvoices: only its owner may use it unless it is published. */
+  readonly uploaded?: UploadedVoiceInfo;
+}
+
+export interface UploadedVoiceInfo {
+  readonly ownerId: string;
+  readonly published: boolean;
+  /** The author's Discord username, for published voices. */
+  readonly authorUsername?: string;
+  readonly publishedAt?: string;
 }
 
 /** A loaded model, ready to synthesize. */

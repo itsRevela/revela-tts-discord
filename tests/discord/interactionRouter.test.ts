@@ -3,7 +3,15 @@ import { describe, it } from 'node:test';
 import type { Interaction } from 'discord.js';
 import type { SlashCommand } from '../../src/commands/types.ts';
 import { createInteractionHandler } from '../../src/discord/interactionRouter.ts';
-import { commandContext, contentOf, fakeAutocomplete, fakeComponent, fakeInteraction, isEphemeral } from '../helpers/fakes.ts';
+import {
+  commandContext,
+  contentOf,
+  fakeAutocomplete,
+  fakeComponent,
+  fakeInteraction,
+  fakeModalSubmit,
+  isEphemeral,
+} from '../helpers/fakes.ts';
 
 function command(execute: SlashCommand['execute'], autocomplete?: SlashCommand['autocomplete']): SlashCommand {
   const data = { name: 'tts', description: 'test' };
@@ -34,6 +42,25 @@ describe('createInteractionHandler', () => {
     const interaction = fakeInteraction();
     await createInteractionHandler(new Map([['tts', failing]]), commandContext())(interaction as unknown as Interaction);
     assert.equal(interaction.replies.at(-1)?.kind, 'edit');
+  });
+
+  it('sends submitted forms to the command named by their custom id, and reports failures', async () => {
+    const seen: string[] = [];
+    const withModal: SlashCommand = {
+      data: { name: 'myvoices', description: 'test' },
+      execute: async () => undefined,
+      modal: async (interaction) => {
+        seen.push(interaction.customId);
+        if (interaction.customId === 'myvoices:broken') throw new Error('boom');
+      },
+    };
+    const handle = createInteractionHandler(new Map([['myvoices', withModal]]), commandContext());
+    await handle(fakeModalSubmit('myvoices:add') as unknown as Interaction);
+    const broken = fakeModalSubmit('myvoices:broken');
+    await handle(broken as unknown as Interaction);
+    await handle(fakeModalSubmit('unknown:form') as unknown as Interaction);
+    assert.deepEqual(seen, ['myvoices:add', 'myvoices:broken']);
+    assert.match(contentOf(broken.replies[0]), /Something went wrong/);
   });
 
   it('ignores unknown commands', async () => {
